@@ -38,22 +38,6 @@
     - mariadb_config.changed
     - not ansible_check_mode
 
-### MariaDBのmysql_secure_installationと同じ内容を実行していきます。
-
-# - name: 初期設定をします。初回のみ実行できます。
-#   expect:
-#     command: mysql_secure_installation
-#     responses:
-#       'Enter current password for root': ''
-#       'Set root password': 'n'
-#       'Remove anonymous users': 'y'
-#       'Disallow root login remotely': 'y'
-#       'Remove test database': 'y'
-#       'Reload privilege tables now': 'y'
-#     timeout: 1
-#   register: secure_mariadb
-#   # failed_when: "'... Failed!' in secure_mariadb.stdout_lines"
-
 - name: "{{ task_file }} rootパスワードを更新します。"
   mysql_user:
     login_user: root                   # login時のユーザー名
@@ -106,5 +90,3 @@
 - name: "{{ task_file }} 権限テーブルを読み込みし直します"
   command: mysql -u root -p"{{ PW_MARIADB }}" -e "FLUSH PRIVILEGES"
   when: not ansible_check_mode
-
-# 確認は select user, host from mysql.user; などで行います。

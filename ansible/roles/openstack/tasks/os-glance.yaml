@@ -3,7 +3,6 @@
     task_file: os-glance.yaml
     service_name: glance
     check_table: images
-    #Ansible変数を環境変数にまとめて変換します。
     env_vars:
       OS_USERNAME: "{{ OS_USERNAME }}"
       OS_PASSWORD: "{{ OS_PASSWORD }}"
@@ -15,7 +14,6 @@
       OS_IMAGE_API_VERSION: "{{ OS_IMAGE_API_VERSION }}"
 
 - name: "{{ task_file }} glance:user テーブルがあるか確認します。"
-# マイグレーションまで１度回っていればimagesが出来るため、これをファクトとして利用します。
   shell: |
     mysql -u root -p'{{ PW_MARIADB }}' -e "USE glance; SHOW TABLES LIKE 'images';"
   register: db_check_result
@@ -23,10 +21,6 @@
   changed_when: false
 
 - name: "{{ task_file }} debug テーブルの確認結果を表示"
-# 1周目は空ですが、2周目以降はimagesが出来ているので以下のように出ているはずです。
-#        "Tables_in_glance (images)",
-#        "images"
-#
   debug:
     msg:
       - "RC: {{ db_check_result.rc }}"
@@ -71,10 +65,7 @@
     - "'images' not in db_check_result.stdout"
     - not ansible_check_mode
 
-# shell: "{{ item }}";loop: command1,command2でまとめるとどこでしくったかわかりずらく別々にしています。
-
 - name: "{{ task_file }} ユーザーが既にあるか確認します。"
-# 初回は rc != 0 で、stderr_linesは "No user with a name or ID of 'glance' exists." です。
   shell: openstack user show glance
   environment: "{{ env_vars }}"
   register: openstack_user
@@ -89,11 +80,9 @@
 - name: "{{ task_file }} ユーザーを作成します。"
   shell: openstack user create --domain default --password {{ PW_OS_GLANCE }} glance
   environment: "{{ env_vars }}"
-  # Return codeが0以外（異常）かつ、結果に何も含まれていないときに実行します。
   when: openstack_user.rc != 0 and not openstack_user.stdout_lines
 
 - name: "{{ task_file }} adminロールに紐づいた{{ service_name }}ロールが既にあるか確認します。"
-# 初回は rc == 0 で、stderr_linesは 空です。
   shell: openstack role assignment list --project service --user glance --role admin
   environment: "{{ env_vars }}"
   register: openstack_role
@@ -108,11 +97,9 @@
 - name: "{{ task_file }} adminロールに紐づいた{{ service_name }}ロールを作成します。"
   shell: openstack role add --project service --user glance admin
   environment: "{{ env_vars }}"
-  # Return codeが0（正常終了）かつ、結果に何も含まれていないときに実行します。
   when: openstack_role.rc == 0 and not openstack_role.stdout_lines
 
 - name: "{{ task_file }} サービスが既にあるか確認します。"
-# サービスの初回は rc != 0 で stdout_lines は空で、stderr_lines には "No project with a name or ID of 'glance' exists."が入ります。
   shell: openstack service show glance
   environment: "{{ env_vars }}"
   register: openstack_service
@@ -125,14 +112,11 @@
       - "stdout_lines: {{ openstack_service.stdout_lines }}"
 
 - name: "{{ task_file }} サービスを作成します。"
-# 冪等性を担保しないと何度でも作成されてしまうので注意します。
   shell: openstack service create --name glance --description "OpenStack Image" image
   environment: "{{ env_vars }}"
-# Return codeが0以外（異常）かつ、結果に何も含まれていないときに実行します。
   when: openstack_service.rc != 0 and not openstack_service.stdout_lines
 
 - name: "{{ task_file }} エンドポイントが既にあるか確認します。"
-# エンドポイントの初回は rc == 0 で stdout_lines は空で、stderr_lines も空です。
   shell: openstack endpoint list --service image --interface internal
   environment: "{{ env_vars }}"
   register: openstack_endpoint
@@ -151,7 +135,6 @@
     - public
     - internal
     - admin
-  # Return codeが0（正常終了）かつ、結果に何も含まれていないときに実行します。
   when: openstack_endpoint.rc == 0 and not openstack_endpoint.stdout_lines
 
 - name: "{{ task_file }} 各種パッケージを追加します。"

@@ -1,7 +1,3 @@
-
-# cf. Install and configure for Ubuntu
-# https://docs.openstack.org/horizon/latest/install/install-ubuntu.html
-
 - name: task内の変数を定義します。
   set_fact:
     task_file: os-horizon.yaml
@@ -31,6 +27,6 @@
   systemd:
     name: apache2.service
     state: reloaded
-  when: 
+  when:
     - config_result.changed
     - not ansible_check_mode

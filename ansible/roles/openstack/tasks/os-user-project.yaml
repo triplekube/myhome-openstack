@@ -1,7 +1,6 @@
 - name: task内の変数を定義します。
   set_fact:
     service_name: os-user-project.yaml
-    #Ansible変数を環境変数にまとめて変換します。
     env_vars:
       OS_USERNAME: "{{ OS_USERNAME }}"
       OS_PASSWORD: "{{ OS_PASSWORD }}"
@@ -71,7 +70,6 @@
     --allocation-pool start={{ user_dhcp_start }},end={{ user_dhcp_end }}
     --dhcp {{ add_name }}-subnet
   environment: "{{ env_vars }}"
-  ## whenの中では{{}}が使えないので以下のようになっています。
   when: add_name ~ "-subnet" not in existing_subnets.stdout
 
 ### 外部ネットワークを作成します。
@@ -137,12 +135,3 @@
   when:
     - existing_keypairs.stdout == ""
     - not ansible_check_mode
-
-# - name: "{{ service_name }} キーペアを登録します"
-#   shell: >
-#     echo "{{ lookup('file', '/home/{{ansible_user}}/.ssh/{{ add_key }}') }}" | openstack keypair create --user {{ add_name }} --user-domain default --public-key /dev/stdin {{ add_name }}-pub
-#   environment: "{{ env_vars }}"
-#   register: result
-#   when:
-#     - add_key not in existing_keypairs.stdout
-#     - not ansible_check_mode

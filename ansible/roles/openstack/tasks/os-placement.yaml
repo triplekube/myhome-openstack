@@ -1,13 +1,8 @@
-
-# cf. Install and configure Placement for Ubuntu
-# https://docs.openstack.org/placement/latest/install/install-ubuntu.html
-
 - name: task内の変数を定義します。
   set_fact:
     task_file: os-placement.yaml
     service_name: placement
     check_table: users
-    #Ansible変数を環境変数にまとめて変換します。
     env_vars:
       OS_USERNAME: "{{ OS_USERNAME }}"
       OS_PASSWORD: "{{ OS_PASSWORD }}"
@@ -19,7 +14,6 @@
       OS_IMAGE_API_VERSION: "{{ OS_IMAGE_API_VERSION }}"
 
 - name: "{{ task_file }} {{ service_name }}:{{ check_table }} テーブルがあるか確認します。"
-# マイグレーションまで１度回っていればusersが出来るため、これをファクトとして利用します。
   shell: |
     mysql -u root -p'{{ PW_MARIADB }}' -e "USE {{ service_name }}; SHOW TABLES LIKE '{{ check_table }}';"
   register: db_check_result
@@ -31,8 +25,6 @@
     msg:
       - "RC: {{ db_check_result.rc }}"
       - "stdout_lines: {{ db_check_result.stdout_lines }}"
-
-## MariaDBで、placementユーザー等を作成します。
 
 - name: "{{ task_file }} DBを作成します。"
   mysql_db:
@@ -67,16 +59,13 @@
     name: "{{ service_name }}"
     password: "{{ PW_OS_PLACEMENT }}"
     priv: '{{ service_name }}.*:ALL'
-    host: "%"                 # % = host_all
+    host: "%"
     state: present
   when:
     - "'users' not in db_check_result.stdout"
     - not ansible_check_mode
 
-## placementユーザーの作成等をします。
-
 - name: "{{ task_file }}ユーザーが既にあるか確認します。"
-# 初回は rc != 0 で、stderr_linesは "No user with a name or ID of 'placement' exists." です。
   shell: "openstack user show {{ service_name }}"
   environment: "{{ env_vars }}"
   register: openstack_user
@@ -89,11 +78,9 @@
 - name: "{{ task_file }}ユーザーを作成します。"
   shell: openstack user create --domain default --password {{ PW_OS_PLACEMENT }} {{ service_name }}
   environment: "{{ env_vars }}"
-  # Return codeが0以外（異常）かつ、結果に何も含まれていないときに実行します。
   when: openstack_user.rc != 0 and not openstack_user.stdout_lines
 
 - name: "{{ task_file }} adminロールに紐づいた{{ service_name }}ロールが既にあるか確認します。"
-# 初回は rc == 0 で、stderr_linesは 空です。
   shell: openstack role assignment list --project service --user {{ service_name }} --role admin
   environment: "{{ env_vars }}"
   register: openstack_role
@@ -108,11 +95,9 @@
 - name: "{{ task_file }} adminロールに紐づいた{{ service_name }}ロールを作成します。"
   shell: openstack role add --project service --user {{ service_name }} admin
   environment: "{{ env_vars }}"
-  # Return codeが0（正常終了）かつ、結果に何も含まれていないときに実行します。
   when: openstack_role.rc == 0 and not openstack_role.stdout_lines
 
 - name: "{{ task_file }} サービスが既にあるか確認します。"
-# サービスの初回は rc != 0 で stdout_lines は空で、stderr_lines には "No project with a name or ID of 'placement' exists."が入ります。
   shell: "openstack service show {{ service_name }}"
   environment: "{{ env_vars }}"
   register: openstack_service
@@ -127,11 +112,9 @@
 - name: "{{ task_file }} サービスを作成します。"
   shell: openstack service create --name {{ service_name }} --description "Placement API" placement
   environment: "{{ env_vars }}"
-# Return codeが0以外（異常）かつ、結果に何も含まれていないときに実行します。
   when: openstack_service.rc != 0 and not openstack_service.stdout_lines
 
 - name: "{{ task_file }} エンドポイントが既にあるか確認します。"
-# エンドポイントの初回は rc == 0 で stdout_lines は空で、stderr_lines も空です。
   shell: openstack endpoint list --service {{ service_name }} --interface internal
   environment: "{{ env_vars }}"
   register: openstack_endpoint
@@ -150,7 +133,6 @@
     - public
     - internal
     - admin
-  # Return codeが0（正常終了）かつ、結果に何も含まれていないときに実行します。
   when: openstack_endpoint.rc == 0 and not openstack_endpoint.stdout_lines
 
 - name: "{{ task_file }} 各種パッケージを追加します。"
@@ -172,14 +154,13 @@
 - name: "{{ task_file }} DBのマイグレーションを行います。"
   command: "/usr/bin/placement-manage db sync"
   become_method: sudo
-  become_user: placement #  一時ファイルは /var/tmp/ansible-tmp-... に作成されます。
+  become_user: placement
   register: migration_result
   when:
     - "'users' not in db_check_result.stdout"
     - not ansible_check_mode
 
 - name: "{{ task_file }} apacheをRestartさせます。"
-# confの変更かマイグレーション時は再起動するようにしています。
   systemd:
     name: apache2
     state: restarted
@@ -217,5 +198,3 @@
     name: osc-placement
     executable: pip3
   when: not ansible_check_mode
-
-# osc-placementプラグインのリストは省略しました。

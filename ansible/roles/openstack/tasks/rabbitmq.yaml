@@ -18,18 +18,9 @@
 
 - name: "{{ task_file }} openstackユーザーを作成します。"
   command: rabbitmqctl add_user openstack {{ PW_RABBITMQ }}
-  # 結果をrabbitmq_add_user_resultにキャッシュさせます。
   register: rabbitmq_add_user_result
-  # コマンドの実行が失敗したときにエラーとして処理します。
   failed_when : rabbitmq_add_user_result.rc !=0
   when: "'openstack' not in rabbitmq_users.stdout"
-
-# 1度設定した後は以下のように権限を確認できます。これを利用して2回実行しないようにしています。
-# ```
-# Listing permissions for user "openstack" ...
-# vhost   configure       write   read
-# /       .*      .*      .*
-# ```
 
 - name: "{{ task_file }} openstackユーザーの権限を確認します。"
   shell: rabbitmqctl list_user_permissions openstack | grep -P "^/\s+\.\*\s+\.\*\s+\.\*$"

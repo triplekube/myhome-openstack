@@ -2,7 +2,6 @@
   set_fact:
     task_file: os-final-check.yaml
     service_name: final-check
-    #Ansible変数を環境変数にまとめて変換します。
     env_vars:
       OS_USERNAME: "{{ OS_USERNAME }}"
       OS_PASSWORD: "{{ OS_PASSWORD }}"

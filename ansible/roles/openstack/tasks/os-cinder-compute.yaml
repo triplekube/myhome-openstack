@@ -1,7 +1,3 @@
-
-# cf. Install and configure a storage node
-# https://docs.openstack.org/cinder/latest/install/cinder-storage-install-ubuntu.html
-
 - name: task内の変数を定義します。
   set_fact:
     service_name: cinder

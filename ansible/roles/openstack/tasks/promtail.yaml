@@ -38,7 +38,7 @@
         owner: 'root'
         group: 'root'
         remote_src: true
-  when: # 以下条件が全て真なら実行
+  when:
     - architecture.ansible_facts.ansible_architecture == "x86_64"
     - not promtail_binary.stat.exists
     - not ansible_check_mode
@@ -65,7 +65,7 @@
         owner: 'root'
         group: 'root'
         remote_src: true
-  when: # 以下条件が全て真なら実行
+  when:
     - architecture.ansible_facts.ansible_architecture == "aarch64"
     - not promtail_binary.stat.exists
     - not ansible_check_mode

@@ -1,7 +1,3 @@
-
-# cf. Install and configure controller node for Ubuntu
-# https://docs.openstack.org/cinder/latest/install/cinder-controller-install-ubuntu.html
-
 - name: task内の変数を定義します。
   set_fact:
     task_file: os-cinder-controller.yaml

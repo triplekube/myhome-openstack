@@ -6,7 +6,7 @@
   - include_tasks: both-password.yaml
   - include_tasks: swap.yaml
   - include_tasks: both.yaml
-## 以下２つは環境があれば有効にしてください。
+## 以下２つは環境がなければ削除してください。
   - include_tasks: grafana_agent.yaml
   - include_tasks: promtail.yaml
 
