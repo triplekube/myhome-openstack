@@ -1,0 +1,191 @@
+- name: task内の変数を定義します。
+  set_fact:
+    task_file: os-glance.yaml
+    service_name: glance
+    check_table: images
+    #Ansible変数を環境変数にまとめて変換します。
+    env_vars:
+      OS_USERNAME: "{{ OS_USERNAME }}"
+      OS_PASSWORD: "{{ OS_PASSWORD }}"
+      OS_PROJECT_NAME: "{{ OS_PROJECT_NAME }}"
+      OS_USER_DOMAIN_NAME: "{{ OS_USER_DOMAIN_NAME }}"
+      OS_PROJECT_DOMAIN_NAME: "{{ OS_PROJECT_DOMAIN_NAME }}"
+      OS_AUTH_URL: "{{ OS_AUTH_URL }}"
+      OS_IDENTITY_API_VERSION: "{{ OS_IDENTITY_API_VERSION }}"
+      OS_IMAGE_API_VERSION: "{{ OS_IMAGE_API_VERSION }}"
+
+- name: "{{ task_file }} glance:user テーブルがあるか確認します。"
+# マイグレーションまで１度回っていればimagesが出来るため、これをファクトとして利用します。
+  shell: |
+    mysql -u root -p'{{ PW_MARIADB }}' -e "USE glance; SHOW TABLES LIKE 'images';"
+  register: db_check_result
+  ignore_errors: true
+  changed_when: false
+
+- name: "{{ task_file }} debug テーブルの確認結果を表示"
+# 1周目は空ですが、2周目以降はimagesが出来ているので以下のように出ているはずです。
+#        "Tables_in_glance (images)",
+#        "images"
+#
+  debug:
+    msg:
+      - "RC: {{ db_check_result.rc }}"
+      - "stdout_lines: {{ db_check_result.stdout_lines }}"
+
+- name: "{{ task_file }} DBを作成します。"
+  mysql_db:
+    login_user: root
+    login_password: "{{ PW_MARIADB }}"
+    login_unix_socket: /run/mysqld/mysqld.sock
+    name: glance
+    state: present
+  when:
+    - "'images' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+- name: "{{ task_file }} localhost用のユーザーを追加します。"
+  mysql_user:
+    login_user: root
+    login_password: "{{ PW_MARIADB }}"
+    login_unix_socket: /run/mysqld/mysqld.sock
+    name: glance
+    password: "{{ PW_OS_GLANCE }}"
+    priv: 'glance.*:ALL'
+    host: localhost
+    state: present
+  when:
+    - "'images' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+- name: "{{ task_file }} 全ホスト用のユーザーを追加します。"
+  mysql_user:
+    login_user: root
+    login_password: "{{ PW_MARIADB }}"
+    login_unix_socket: /run/mysqld/mysqld.sock
+    name: glance
+    password: "{{ PW_OS_GLANCE }}"
+    priv: 'glance.*:ALL'
+    host: "%"                 # % = host_all
+    state: present
+  when:
+    - "'images' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+# shell: "{{ item }}";loop: command1,command2でまとめるとどこでしくったかわかりずらく別々にしています。
+
+- name: "{{ task_file }} ユーザーが既にあるか確認します。"
+# 初回は rc != 0 で、stderr_linesは "No user with a name or ID of 'glance' exists." です。
+  shell: openstack user show glance
+  environment: "{{ env_vars }}"
+  register: openstack_user
+  ignore_errors: true
+
+- name: "{{ task_file }} ユーザーの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ openstack_user.rc }}"
+      - "stdout_lines: {{ openstack_user.stdout_lines }}"
+
+- name: "{{ task_file }} ユーザーを作成します。"
+  shell: openstack user create --domain default --password {{ PW_OS_GLANCE }} glance
+  environment: "{{ env_vars }}"
+  # Return codeが0以外（異常）かつ、結果に何も含まれていないときに実行します。
+  when: openstack_user.rc != 0 and not openstack_user.stdout_lines
+
+- name: "{{ task_file }} adminロールに紐づいた{{ service_name }}ロールが既にあるか確認します。"
+# 初回は rc == 0 で、stderr_linesは 空です。
+  shell: openstack role assignment list --project service --user glance --role admin
+  environment: "{{ env_vars }}"
+  register: openstack_role
+  ignore_errors: true
+
+- name: "{{ task_file }} ロールの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ openstack_role.rc }}"
+      - "stdout_lines: {{ openstack_role.stdout_lines }}"
+
+- name: "{{ task_file }} adminロールに紐づいた{{ service_name }}ロールを作成します。"
+  shell: openstack role add --project service --user glance admin
+  environment: "{{ env_vars }}"
+  # Return codeが0（正常終了）かつ、結果に何も含まれていないときに実行します。
+  when: openstack_role.rc == 0 and not openstack_role.stdout_lines
+
+- name: "{{ task_file }} サービスが既にあるか確認します。"
+# サービスの初回は rc != 0 で stdout_lines は空で、stderr_lines には "No project with a name or ID of 'glance' exists."が入ります。
+  shell: openstack service show glance
+  environment: "{{ env_vars }}"
+  register: openstack_service
+  ignore_errors: true
+
+- name: "{{ task_file }} サービスの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ openstack_service.rc }}"
+      - "stdout_lines: {{ openstack_service.stdout_lines }}"
+
+- name: "{{ task_file }} サービスを作成します。"
+# 冪等性を担保しないと何度でも作成されてしまうので注意します。
+  shell: openstack service create --name glance --description "OpenStack Image" image
+  environment: "{{ env_vars }}"
+# Return codeが0以外（異常）かつ、結果に何も含まれていないときに実行します。
+  when: openstack_service.rc != 0 and not openstack_service.stdout_lines
+
+- name: "{{ task_file }} エンドポイントが既にあるか確認します。"
+# エンドポイントの初回は rc == 0 で stdout_lines は空で、stderr_lines も空です。
+  shell: openstack endpoint list --service image --interface internal
+  environment: "{{ env_vars }}"
+  register: openstack_endpoint
+  ignore_errors: true
+
+- name: "{{ task_file }} エンドポイントの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ openstack_endpoint.rc }}"
+      - "stdout_lines: {{ openstack_endpoint.stdout_lines }}"
+
+- name: "{{ task_file }} エンドポイントを作成します。"
+  shell: "openstack endpoint create --region {{ region }} image {{ item }} http://{{ ansible_hostname }}.{{ domain }}:9292"
+  environment: "{{ env_vars }}"
+  loop:
+    - public
+    - internal
+    - admin
+  # Return codeが0（正常終了）かつ、結果に何も含まれていないときに実行します。
+  when: openstack_endpoint.rc == 0 and not openstack_endpoint.stdout_lines
+
+- name: "{{ task_file }} 各種パッケージを追加します。"
+  apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: yes
+  with_items:
+    - glance
+
+- name: "{{ task_file }} glance-api.conf を用意します。"
+  template:
+    src: glance-api.conf.j2
+    dest: /etc/glance/glance-api.conf
+    mode: 0644
+    force: yes
+  register: config_result
+
+- name: "{{ task_file }} DBのマイグレーションを行います。"
+  command: "/usr/bin/glance-manage db_sync"
+  become_method: sudo
+  become_user: glance #  一時ファイルは /var/tmp/ansible-tmp-... に作成されます。
+  register: migration_result
+  when:
+    - "'images' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+
+- name: "{{ task_file }} {{ service_name }}をRestartさせます。"
+  systemd:
+    name: glance-api
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+  when:
+    - config_result.changed or migration_result.changed
+    - not ansible_check_mode

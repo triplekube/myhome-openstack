@@ -1,0 +1,12 @@
+[Unit]
+Description=Promtail service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Environment="HOSTNAME=%H"
+ExecStart=/usr/local/bin/promtail -config.file /etc/promtail/promtail-local-config.yaml -config.expand-env=true
+
+[Install]
+WantedBy=multi-user.target

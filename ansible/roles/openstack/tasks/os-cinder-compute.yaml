@@ -1,0 +1,32 @@
+
+# cf. Install and configure a storage node
+# https://docs.openstack.org/cinder/latest/install/cinder-storage-install-ubuntu.html
+
+- name: task内の変数を定義します。
+  set_fact:
+    service_name: cinder
+
+- name: "{{ service_name }} 各種パッケージを追加します。"
+  apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: false
+  with_items:
+    - nfs-common
+
+- name: "{{ service_name }} idmapd.conf を用意します。"
+  template:
+    src: idmapd.conf.j2
+    dest: /etc/idmapd.conf
+    mode: 0644
+    force: yes
+
+- name: "{{ service_name }} アプリの再起動をします。"
+  systemd:
+    name: "{{ item }}"
+    state: restarted
+    daemon_reload: yes
+  loop:
+    - nova-compute.service
+  when:
+    - not ansible_check_mode

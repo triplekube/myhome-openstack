@@ -1,0 +1,263 @@
+
+# cf. Install and configure controller node for Ubuntu
+# https://docs.openstack.org/cinder/latest/install/cinder-controller-install-ubuntu.html
+
+- name: task内の変数を定義します。
+  set_fact:
+    task_file: os-cinder-controller.yaml
+    service_name: cinder
+    check_table: volumes
+    #Ansible変数を環境変数にまとめて変換します。
+    env_vars:
+      OS_USERNAME: "{{ OS_USERNAME }}"
+      OS_PASSWORD: "{{ OS_PASSWORD }}"
+      OS_PROJECT_NAME: "{{ OS_PROJECT_NAME }}"
+      OS_USER_DOMAIN_NAME: "{{ OS_USER_DOMAIN_NAME }}"
+      OS_PROJECT_DOMAIN_NAME: "{{ OS_PROJECT_DOMAIN_NAME }}"
+      OS_AUTH_URL: "{{ OS_AUTH_URL }}"
+      OS_IDENTITY_API_VERSION: "{{ OS_IDENTITY_API_VERSION }}"
+      OS_IMAGE_API_VERSION: "{{ OS_IMAGE_API_VERSION }}"
+
+- name: "{{ task_file }} volumes テーブルがあるか確認します。"
+# マイグレーションまで１度回っていればvolumesが出来るため、これをファクトとして利用します。
+  shell: |
+    mysql -u root -p'{{ PW_MARIADB }}' -e "USE cinder; SHOW TABLES LIKE 'volumes';"
+  register: db_check_result
+  ignore_errors: true
+  changed_when: false
+
+- name: "{{ task_file }} debug テーブルの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ db_check_result.rc }}"
+      - "stdout_lines: {{ db_check_result.stdout_lines }}"
+
+- name: "{{ task_file }} DBを作成します。"
+  mysql_db:
+    login_user: root
+    login_password: "{{ PW_MARIADB }}"
+    login_unix_socket: /run/mysqld/mysqld.sock
+    name: "{{ service_name }}"
+    state: present
+  when:
+    - "'volumes' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+- name: "{{ task_file }} localhost用のユーザーを追加します。"
+  mysql_user:
+    login_user: root
+    login_password: "{{ PW_MARIADB }}"
+    login_unix_socket: /run/mysqld/mysqld.sock
+    name: "{{ service_name }}"
+    password: "{{ PW_OS_CINDER }}"
+    priv: '{{ service_name }}.*:ALL'
+    host: localhost
+    state: present
+  when:
+    - "'volumes' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+- name: "{{ task_file }} 全ホスト用のユーザーを追加します。"
+  mysql_user:
+    login_user: root
+    login_password: "{{ PW_MARIADB }}"
+    login_unix_socket: /run/mysqld/mysqld.sock
+    name: "{{ service_name }}"
+    password: "{{ PW_OS_CINDER }}"
+    priv: '{{service_name }}.*:ALL'
+    host: "%"                 # % = host_all
+    state: present
+  when:
+    - "'volumes' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+## cinderユーザーの作成等をします。
+
+- name: "{{ task_file }} ユーザーが既にあるか確認します。"
+# 初回は rc != 0 で、stderr_linesは "No user with a name or ID of 'cinder' exists." です。
+  shell: openstack user show cinder
+  environment: "{{ env_vars }}"
+  register: openstack_user
+  ignore_errors: true
+
+- name: "{{ task_file }} ユーザーの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ openstack_user.rc }}"
+      - "stdout_lines: {{ openstack_user.stdout_lines }}"
+
+- name: "{{ task_file }} ユーザーを作成します。"
+  shell: openstack user create --domain default --password {{ PW_OS_CINDER }} cinder
+  environment: "{{ env_vars }}"
+  # Return codeが0以外（異常）かつ、結果に何も含まれていないときに実行します。
+  when: openstack_user.rc != 0 and not openstack_user.stdout_lines
+
+- name: "{{ task_file }} adminロールに紐づいた{{ service_name }}ロールが既にあるか確認します。"
+# 初回は rc == 0 で、stderr_linesは 空です
+  shell: openstack role assignment list --project service --user cinder --role admin
+  environment: "{{ env_vars }}"
+  register: openstack_role
+  ignore_errors: true
+
+- name: "{{ task_file }} ロールの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ openstack_role.rc }}"
+      - "stdout_lines: {{ openstack_role.stdout_lines }}"
+
+- name: "{{ task_file }} adminロールに紐づいた{{ service_name }}ロールを作成します。"
+  shell: openstack role add --project service --user cinder admin
+  environment: "{{ env_vars }}"
+  # Return codeが0（正常終了）かつ、結果に何も含まれていないときに実行します。
+  when: openstack_role.rc == 0 and not openstack_role.stdout_lines
+
+
+- name: "{{ task_file }} v3 サービスが既にあるか確認します。"
+# サービスの初回は rc != 0 で stdout_lines は空で、stderr_lines には "No project with a name or ID of 'cinderv3' exists."が入ります。
+  shell: openstack service show cinderv3
+  environment: "{{ env_vars }}"
+  register: openstack_service
+  ignore_errors: true
+
+- name: "{{ task_file }} サービスの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ openstack_service.rc }}"
+      - "stdout_lines: {{ openstack_service.stdout_lines }}"
+
+- name: "{{ task_file }} v3 サービスを作成します。"
+# 冪等性を担保しないと何度でも作成されてしまうので注意します。
+  shell: openstack service create --name cinderv3 --description "OpenStack Image" volumev3
+  environment: "{{ env_vars }}"
+# Return codeが0以外（異常）かつ、結果に何も含まれていないときに実行します。
+  when: openstack_service.rc != 0 and not openstack_service.stdout_lines
+
+# https://docs.openstack.org/cinder/latest/configuration/block-storage/service-token.html
+- name: "{{ task_file }} service-token用のserviceロールに{{ service_name }}ユーザーが紐づいているか確認します。"
+  shell: openstack role assignment list --user {{ service_name }} --project service --role service
+  environment: "{{ env_vars }}"
+  register: openstack_role_service
+  ignore_errors: true
+
+- name: "{{ task_file }} serviceロールの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ openstack_role_service.rc }}"
+      - "stdout_lines: {{ openstack_role_service.stdout_lines }}"
+
+- name: "{{ task_file }} service-token用のserviceロールに{{ service_name }}ユーザーを紐づけます。"
+  shell: openstack role add --user {{ service_name }} --project service service
+  environment: "{{ env_vars }}"
+  # Return codeが0（正常終了）かつ、結果に何も含まれていないときに実行します。
+  when: openstack_role_service.rc == 0 and not openstack_role_service.stdout_lines
+
+- name: "{{ task_file }} エンドポイントが既にあるか確認します。"
+# エンドポイントの初回は rc == 0 で stdout_lines は空で、stderr_lines も空です。
+  shell: openstack endpoint list --service cinderv3 --interface internal
+  environment: "{{ env_vars }}"
+  register: openstack_endpoint
+  ignore_errors: true
+
+- name: "{{ task_file }} エンドポイントの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ openstack_endpoint.rc }}"
+      - "stdout_lines: {{ openstack_endpoint.stdout_lines }}"
+
+- name: "{{ task_file }} エンドポイントを作成します。"
+  shell: "openstack endpoint create --region {{ region }} volumev3 {{ item }} 'http://{{ ansible_hostname }}.{{ domain }}:8776/v3/%(project_id)s'"
+  environment: "{{ env_vars }}"
+  loop:
+    - public
+    - internal
+    - admin
+  # Return codeが0（正常終了）かつ、結果に何も含まれていないときに実行します。
+  when: openstack_endpoint.rc == 0 and not openstack_endpoint.stdout_lines
+
+- name: "{{ task_file }} 各種パッケージを追加します。"
+  apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: false
+  with_items:
+    - cinder-api
+    - cinder-scheduler
+    - cinder-volume
+    - nfs-common
+
+- name: "{{ task_file }} idmapd.conf を用意します。"
+  template:
+    src: idmapd.conf.j2
+    dest: /etc/idmapd.conf
+    mode: 0644
+    force: yes
+
+- name: "{{ task_file }} /etc/cinder/nfs_shares を用意します。"
+  copy:
+    dest: /etc/cinder/nfs_shares
+    content: |
+      {{ nfs_shares }}
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: "{{ task_file }} cinder.conf を用意します。"
+  template:
+    src: cinder.conf.j2
+    dest: /etc/cinder/cinder.conf
+    mode: 0644
+    force: yes
+  register: config_result
+
+- name: "{{ task_file }} DBのマイグレーションを行います。"
+  command: "/usr/bin/cinder-manage db sync"
+  become_method: sudo
+  become_user: cinder
+  register: migration_result
+  when:
+    - "'volumes' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+- name: "{{ task_file }} 再起動と有効化を行います。"
+  systemd:
+    name: "{{ item }}"
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+  loop:
+    - cinder-scheduler.service
+    - cinder-volume.service
+    - apache2.service
+  when:
+    - config_result.changed or migration_result.changed
+    - not ansible_check_mode
+
+- name: "{{ task_file }} NFSボリュームタイプが既にあるか確認します。"
+  shell: openstack volume type show nfs
+  environment: "{{ env_vars }}"
+  register: openstack_volumetype
+  # 初回は rc != 0 になり、"No volumetype with a name or ID of 'nfs' exists."と出るので
+  # 次に進むようにignore_errors: trueとしています。
+  ignore_errors: true
+
+- name: "{{ task_file }} ボリュームタイプの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ openstack_volumetype.rc }}"
+      - "stdout_lines: {{ openstack_volumetype.stdout_lines }}"
+
+# 1回目は rc != 0 、stdoutは空、stderr_linesは"No volumetype with a name or ID of 'nfs' exists."
+# ok: [ostest01] => {
+#     "msg": [
+#         "RC: 1",
+#         "stdout_lines: []"
+#     ]
+# }
+
+- name: "{{ task_file }} NFSボリュームタイプを作成します。"
+  shell: openstack volume type create nfs
+  environment: "{{ env_vars }}"
+  # Return codeが0以外（異常）かつ、結果に何も含まれていないときに実行します。
+  when: openstack_volumetype.rc != 0 and not openstack_volumetype.stdout_lines
+
+

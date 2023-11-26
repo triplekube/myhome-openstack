@@ -1,0 +1,27 @@
+server:
+  log_level: warn
+metrics:
+  global:
+    scrape_interval: 1m
+  wal_directory: '/var/lib/grafana-agent'
+  configs:
+integrations:
+  agent:
+    enabled: false
+  node_exporter:
+    enabled: true
+    include_exporter_metrics: true
+    disable_collectors:
+      - 'mdadm'
+      - 'bonding'
+      - 'btrfs'
+      - 'hwmon'
+      - 'infiniband'
+      - 'ipvs'
+      - 'mdadm'
+      - 'zfs'
+      - 'nfs'
+      - 'nfsd'
+    textfile_directory: '/opt/text_collector/'
+  prometheus_remote_write:
+    - url: {{ url_grafana_agent }}

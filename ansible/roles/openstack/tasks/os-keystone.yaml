@@ -1,0 +1,249 @@
+# cf. openstack-ansible-os_keystone
+# https://github.com/openstack/openstack-ansible-os_keystone
+
+- name: task内の変数を定義します。
+  set_fact:
+    task_file: os-keystone.yaml
+    service_name: keystone
+    check_table: user
+    #Ansible変数を環境変数にまとめて変換します。
+    env_vars:
+      OS_USERNAME: "{{ OS_USERNAME }}"
+      OS_PASSWORD: "{{ OS_PASSWORD }}"
+      OS_PROJECT_NAME: "{{ OS_PROJECT_NAME }}"
+      OS_USER_DOMAIN_NAME: "{{ OS_USER_DOMAIN_NAME }}"
+      OS_PROJECT_DOMAIN_NAME: "{{ OS_PROJECT_DOMAIN_NAME }}"
+      OS_AUTH_URL: "{{ OS_AUTH_URL }}"
+      OS_IDENTITY_API_VERSION: "{{ OS_IDENTITY_API_VERSION }}"
+      OS_IMAGE_API_VERSION: "{{ OS_IMAGE_API_VERSION }}"
+
+- name: "{{ task_file }} {{ check_table }} テーブルがあるか確認します。"
+# マイグレーションまで１度回っていればuserが出来るため、これをファクトとして利用します。
+# 初回は rc != 0 で、stdout_linesは空、stderr_linesは "ERROR 1049 (42000) at line 1: Unknown database 'keystone'" です。
+  command: mysql -u root -p'{{ PW_MARIADB }}' -e "USE keystone; SHOW TABLES LIKE '{{ check_table }}';"
+  register: db_check_result
+  ignore_errors: true
+
+- name: "{{ task_file }} debug テーブルの確認結果を表示"
+  debug:
+    msg:
+      # RC = Return code の略で、0なら正常、0以外なら異常です。
+      - "RC: {{ db_check_result.rc }}"
+      # stdout_lines は、コマンドの実行結果の標準出力（stdout）を改行で分割したものです。
+      - "stdout_lines: {{ db_check_result.stdout_lines }}"
+
+- name: "{{ task_file }} DBを作成します。"
+  mysql_db:
+    login_user: root
+    login_password: "{{ PW_MARIADB }}"
+    login_unix_socket: /run/mysqld/mysqld.sock
+    name: keystone
+    state: present
+  when:
+    - "'user' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+# MariaDB [(none)]> SHOW DATABASES LIKE 'k%';
+# +---------------+
+# | Database (k%) |
+# +---------------+
+# | keystone      |
+# +---------------+
+
+- name: "{{ task_file }} localhost用のユーザーを追加します。"
+  mysql_user:
+    login_user: root
+    login_password: "{{ PW_MARIADB }}"
+    login_unix_socket: /run/mysqld/mysqld.sock
+    name: keystone
+    password: "{{ PW_OS_KEYSTONE }}"
+    priv: 'keystone.*:ALL'
+    host: localhost
+    state: present
+  when:
+    - "'user' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+- name: "{{ task_file }} 全ホスト用のユーザーを追加します。"
+  mysql_user:
+    login_user: root
+    login_password: "{{ PW_MARIADB }}"
+    login_unix_socket: /run/mysqld/mysqld.sock
+    name: keystone
+    password: "{{ PW_OS_KEYSTONE }}"
+    priv: 'keystone.*:ALL'
+    host: "%"                 # % = host_all
+    state: present
+  when:
+    - "'user' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+# MariaDB [(none)]> select user, host from mysql.user;
+# +-------------+-----------+
+# | User        | Host      |
+# +-------------+-----------+
+# | keystone    | localhost |
+# | keystone    | %         |
+# +-------------+-----------+
+
+- name: "{{ task_file }} 各種パッケージを追加します。"
+  apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: yes
+  with_items:
+    - keystone
+
+- name: "{{ task_file }} keystone.conf を用意します。"
+  template:
+    src: keystone.conf.j2
+    dest: /etc/keystone/keystone.conf
+    mode: 0644
+    force: yes
+
+- name: "{{ task_file }} DBのマイグレーションを行います。"
+# "msg": "non-zero return code" で止まるときは、keystone.confで指定したDNS名でDBに接続できていない可能性があります。pingで確認してください。
+# keystone.confのconnectionで指定されているホスト名と、該当サーバーにてhostnameを打って表示されるホスト名が同じか確認してください。
+  command: "/usr/bin/keystone-manage db_sync"
+  become_method: sudo
+  become_user: keystone #  一時ファイルは /var/tmp/ansible-tmp-... に作成されます。
+  when:
+    - "'user' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+- name: "{{ task_file }} fernet keysがあるか確認します。"
+  stat:
+    path: "/etc/keystone/fernet-keys/0"
+  register: fernet_keys_check_result
+
+- name: "{{ task_file }} fernetトークンの初期化を行います。"
+  command: "{{ item }}"
+  with_items:
+    - keystone-manage fernet_setup --keystone-user keystone --keystone-group keystone
+  when: not fernet_keys_check_result.stat.exists
+
+- name: "{{ task_file }} credential keysがあるか確認します。"
+  stat:
+    path: "/etc/keystone/credential-keys/0"
+  register: credential_keys_check_result
+
+- name: "{{ task_file }} credentialの作成を行います。"
+  command: "{{ item }}"
+  with_items:
+    - keystone-manage credential_setup --keystone-user keystone --keystone-group keystone
+  when: not credential_keys_check_result.stat.exists
+
+- name: "{{ task_file }} エンドポイントが既にあるか確認します。"
+# 初回は rc != 0 で、stderr_linesは "The request you have made requires authentication. (HTTP 401)" です。
+  shell: openstack endpoint list --service keystone --interface internal
+  environment: "{{ env_vars }}"
+  register: openstack_endpoint
+  ignore_errors: true
+
+# 1回目は空が返り、endpointを作成します。
+# ok: [host] => {
+#     "openstack_endpoint.stdout_lines": []
+# }
+
+# 2回目以降は以下のendpointが返り作成はskipします。
+# ok: [host] => {
+#     "openstack_endpoint.stdout_lines": [
+# +-----+-----------+--------------+--------------+---------+-----------+------------------------------+
+# | ID  | Region    | Service Name | Service Type | Enabled | Interface | URL                          |
+# +-----+-----------+--------------+--------------+---------+-----------+------------------------------+
+# | xxx | rgn-hoge  | keystone     | identity     | True    | internal  | http://host.example:5000/v3/ |
+# +-----+-----------+--------------+--------------+---------+-----------+------------------------------+
+#     ]
+# }
+
+- name: "{{ task_file }} エンドポイントの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ openstack_endpoint.rc }}"
+      - "stdout_lines: {{ openstack_endpoint.stdout_lines }}"
+
+- name: "{{ task_file }} エンドポイントを作成します。"
+  command: >
+    keystone-manage bootstrap --bootstrap-password {{ PW_OS_ADMIN }}
+    --bootstrap-admin-url {{ OS_AUTH_URL }}
+    --bootstrap-internal-url {{ OS_AUTH_URL }}
+    --bootstrap-public-url {{ OS_AUTH_URL }}
+    --bootstrap-region-id {{ region }}
+  # Return codeが0以外（異常）かつ、結果に何も含まれていないときに実行します。
+  when: openstack_endpoint.rc != 0 and not openstack_endpoint.stdout_lines
+
+- name: "{{ task_file }} サーバー名をapache2.confで設定します。"
+  lineinfile:
+    path: /etc/apache2/apache2.conf
+    line: 'ServerName {{ ansible_hostname }}.{{ domain }}'
+    state: present
+  register: apache_config
+  when:
+    - not ansible_check_mode
+
+- name: "{{ task_file }} apache2をRestartさせます。"
+# サーバー名追加時=初回で再起動必須、としています。
+  systemd:
+    name: apache2
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+  when:
+    - apache_config.changed
+    - not ansible_check_mode
+
+- name: "{{ task_file }} Apacheが起動するのを待ちます。"
+  wait_for:
+    host: "localhost"
+    port: 5000
+    state: started
+    delay: 2  # ポートが開くのを待つ間隔（秒）
+    timeout: 300  # 最大待機時間（秒）
+  when:
+    - not ansible_check_mode
+
+- name: "{{ task_file }} Apacheにアクセスしてみます。"
+  uri:
+    url: http://localhost:5000/v3/
+    return_content: yes
+  when:
+    - not ansible_check_mode
+
+- name: "{{ task_file }} 各種サービスが所属するserviceプロジェクトを確認します。"
+# サービスの初回は rc != 0 で stdout_lines は空で、stderr_lines には "No project with a name or ID of 'service' exists."が入ります。
+  shell: openstack project show service
+  environment: "{{ env_vars }}"
+  register: project_check_result
+  ignore_errors: true
+
+- name: "{{ task_file }} serviceプロジェクトの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ project_check_result.rc }}"
+      - "stdout_lines: {{ project_check_result.stdout_lines }}"
+
+- name: "{{ task_file }} 各種サービスが所属するserviceプロジェクトを作成します。"
+  shell: openstack project create --domain default --description "Service Project" service
+  environment: "{{ env_vars }}"
+  # Return codeが0以外（異常）かつ、結果に何も含まれていないときに実行します。
+  when: project_check_result.rc != 0 and not project_check_result.stdout_lines
+
+- name: "{{ task_file }} service-token用のserviceロールを確認します。"
+# サービスの初回は rc != 0 で stdout_lines は空で、stderr_lines には "No role with a name or ID of 'service' exists."が入ります。
+  shell: openstack role show service
+  environment: "{{ env_vars }}"
+  register: role_check_result
+  ignore_errors: true
+
+- name: "{{ task_file }} serviceロールの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ role_check_result.rc }}"
+      - "stdout_lines: {{ role_check_result.stdout_lines }}"
+
+- name: "{{ task_file }} service-token用のserviceロールを作成します。"
+  shell: openstack role create service
+  environment: "{{ env_vars }}"
+  # Return codeが0以外（異常）かつ、結果に何も含まれていないときに実行します。
+  when: role_check_result.rc != 0 and not role_check_result.stdout_lines
+

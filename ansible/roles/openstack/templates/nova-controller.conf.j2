@@ -1,0 +1,82 @@
+[DEFAULT]
+log_dir = /var/log/nova
+lock_path = /var/lock/nova
+state_path = /var/lib/nova
+transport_url = rabbit://openstack:{{ PW_RABBITMQ }}@{{ ansible_hostname }}.{{ domain }}:5672/
+my_ip = {{ ansible_host }}
+
+[api]
+auth_strategy = keystone
+
+[api_database]
+connection = mysql+pymysql://nova:{{ PW_OS_NOVA }}@{{ ansible_hostname }}.{{ domain }}/nova_api
+
+[cinder]
+os_region_name = {{ region }}
+
+[database]
+connection = mysql+pymysql://nova:{{ PW_OS_NOVA }}@{{ ansible_hostname }}.{{ domain }}/nova
+
+[glance]
+api_servers = http://{{ ansible_hostname }}.{{ domain }}:9292
+
+[keystone_authtoken]
+www_authenticate_uri = http://{{ ansible_hostname }}.{{ domain }}:5000/
+auth_url = http://{{ ansible_hostname }}.{{ domain }}:5000/
+memcached_servers = {{ ansible_hostname }}.{{ domain }}:11211
+auth_type = password
+project_domain_name = Default
+user_domain_name = Default
+project_name = service
+username = nova
+password = {{ PW_OS_NOVA }}
+
+[neutron]
+auth_url = http://{{ ansible_hostname }}.{{ domain }}:5000
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+region_name = {{ region }}
+project_name = service
+username = neutron
+password = {{ PW_OS_NEUTRON }}
+service_metadata_proxy = true
+metadata_proxy_shared_secret = {{ PW_OS_METADATA }}
+
+[oslo_concurrency]
+lock_path = /var/lib/nova/tmp
+
+[placement]
+region_name = {{ region }}
+project_domain_name = Default
+project_name = service
+auth_type = password
+user_domain_name = Default
+auth_url = http://{{ ansible_hostname }}.{{ domain }}:5000/v3
+username = placement
+password = {{ PW_OS_PLACEMENT }}
+
+[scheduler]
+discover_hosts_in_cells_interval = 300
+
+# https://docs.openstack.org/nova/2023.1/install/controller-install-ubuntu.html
+[service_user]
+send_service_user_token = true
+auth_url = http://{{ ansible_hostname }}.{{ domain }}:5000/
+auth_strategy = keystone
+auth_type = password
+project_domain_name = Default
+project_name = service
+user_domain_name = Default
+username = nova
+password = {{ PW_OS_NOVA }}
+region_name = {{ region }}
+valid_interfaces = internal
+
+[vnc]
+enabled = true
+server_listen = $my_ip
+server_proxyclient_address = $my_ip
+
+[cells]
+enable = False

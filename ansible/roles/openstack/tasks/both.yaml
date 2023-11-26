@@ -1,0 +1,102 @@
+- name: task内の変数を定義します。
+  set_fact:
+    task_file: both.yaml
+    service_name: both
+
+- name: "{{ task_file }} software-properties-commonのみ先行して入れます。"
+  apt:
+    name: software-properties-common
+    state: present
+
+- name: "{{ task_file }} UCA(Ubuntu Cloud Archive) repository を追加します。"
+  command:
+    cmd: "add-apt-repository -y cloud-archive:{{ openstack_uca }}"
+  register: repo_added
+
+- name: "{{ task_file }} レポジトリ追加時はキャッシュを更新します。"
+  apt:
+    update_cache: yes
+  when: repo_added.changed
+
+- name: "{{ task_file }} パッケージの Update and upgrade を行います。"
+  apt:
+    upgrade: 'yes'
+    update_cache: yes
+    # cache_valid_time: 3600
+
+- name: "{{ task_file }} アーキテクチャ情報を収集します。"
+  ansible.builtin.setup:
+    filter: ansible_architecture
+  register: architecture
+
+- name: "{{ task_file }} 各種パッケージを追加します。"
+  package:
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - apt-transport-https
+    - avahi-daemon
+    - avahi-utils
+    - bridge-utils
+    - ca-certificates
+    - cpu-checker
+    - curl
+    - gnupg
+    - libvirt-clients
+    - lsb-release
+    - net-tools
+    - software-properties-common
+    - vlan
+    - zip
+    # config_driveに必要です。
+    - genisoimage
+
+- name: "{{ task_file }} arm64(RPiを想定)のみのパッケージを追加します。"
+  package:
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - libraspberrypi-bin
+    - linux-modules-extra-raspi
+  when: ansible_architecture == 'aarch64'
+
+- name: "{{ task_file }} modulesファイルを作成します。"
+  copy:
+    content: |
+      bridge
+      br_netfilter
+      8021q
+      vhost_net
+    dest: /etc/modules-load.d/openstack.conf
+
+- name: "{{ task_file }} modulesを読み込みます。"
+  command:
+    cmd: "modprobe {{ item }}"
+  loop:
+    - bridge
+    - br_netfilter
+    - 8021q
+    - vhost_net
+
+- name: "{{ task_file }} Bridge経由のiptablesを効かないようにしたりします。"
+  copy:
+    content: |
+      net.bridge.bridge-nf-call-arptables = 0
+      net.bridge.bridge-nf-call-ip6tables = 0
+      net.bridge.bridge-nf-call-iptables = 0
+    dest: /etc/sysctl.d/openstack.conf
+
+- name: "{{ task_file }} sysctlを適用します。"
+  command: sysctl --system
+
+- name: "{{ task_file }} NTPの設定をします。VMではなくRPi初期設定を想定しています。"
+  copy:
+    src: timesyncd.conf
+    dest: /etc/systemd/timesyncd.conf
+    mode: 0644
+    force: yes
+
+- name: "{{ task_file }} systemd-timesyncd をリスタートします。"
+  systemd:
+    name: systemd-timesyncd.service
+    state: restarted

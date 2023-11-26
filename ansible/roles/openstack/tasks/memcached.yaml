@@ -1,0 +1,32 @@
+- name: task内の変数を定義します。
+  set_fact:
+    task_file: memcached.yaml
+    service_name: memcached
+
+- name: "{{ task_file }} 各種パッケージを追加します。"
+  apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: yes
+  with_items:
+    - memcached
+    - python3-memcache
+
+- name: "{{ task_file }} memcached.conf を用意します。"
+  template:
+    src: memcached.conf.j2
+    dest: /etc/memcached.conf
+    mode: 0644
+    force: yes
+  register: memcached_config
+  when: not ansible_check_mode
+
+- name: "{{ task_file }} Restartさせます。"
+  systemd:
+    name: memcached
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+  when:
+    - memcached_config.changed
+    - not ansible_check_mode

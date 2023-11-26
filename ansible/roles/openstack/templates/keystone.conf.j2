@@ -1,0 +1,11 @@
+[DEFAULT]
+log_dir = /var/log/keystone
+
+[database]
+connection = mysql+pymysql://keystone:{{ PW_OS_KEYSTONE }}@{{ ansible_hostname }}.{{ domain }}/keystone
+
+[extra_headers]
+Distribution = Ubuntu
+
+[token]
+provider = fernet

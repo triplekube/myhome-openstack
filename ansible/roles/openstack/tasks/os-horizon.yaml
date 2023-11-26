@@ -1,0 +1,36 @@
+
+# cf. Install and configure for Ubuntu
+# https://docs.openstack.org/horizon/latest/install/install-ubuntu.html
+
+- name: task内の変数を定義します。
+  set_fact:
+    task_file: os-horizon.yaml
+    service_name: horizon
+    check_table: networks
+
+- name: "{{ task_file }} 各種パッケージを追加します。"
+  apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: false
+  with_items:
+    - openstack-dashboard
+
+- name: "{{ task_file }} 各種設定ファイルを用意します。"
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: 0644
+    force: yes
+  loop:
+    - src: local_settings.py.j2
+      dest: /etc/openstack-dashboard/local_settings.py
+  register: config_result
+
+- name: "{{ task_file }} apacheをリロードします。"
+  systemd:
+    name: apache2.service
+    state: reloaded
+  when: 
+    - config_result.changed
+    - not ansible_check_mode

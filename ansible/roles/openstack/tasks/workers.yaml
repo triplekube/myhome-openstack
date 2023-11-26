@@ -1,0 +1,6 @@
+- name: 各種パッケージを追加します。
+  package:
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - net-tools

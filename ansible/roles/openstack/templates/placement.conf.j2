@@ -1,0 +1,17 @@
+[DEFAULT]
+
+[api]
+auth_strategy = keystone
+
+[keystone_authtoken]
+auth_url = http://{{ ansible_hostname }}.{{ domain }}:5000/v3
+memcached_servers = {{ ansible_hostname }}.{{ domain }}:11211
+auth_type = password
+project_domain_name = Default
+user_domain_name = Default
+project_name = service
+username = placement
+password = {{ PW_OS_PLACEMENT }}
+
+[placement_database]
+connection = mysql+pymysql://placement:{{ PW_OS_PLACEMENT }}@{{ ansible_hostname }}.{{ domain }}/placement

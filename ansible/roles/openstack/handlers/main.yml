@@ -1,0 +1,13 @@
+  - name: restart neutron-services
+    systemd:
+      name: "{{ item }}"
+      state: restarted
+      daemon_reload: yes
+      enabled: yes
+    loop:
+      - nova-api.service
+      - neutron-server.service
+      - neutron-linuxbridge-agent.service
+      - neutron-dhcp-agent.service
+      - neutron-metadata-agent.service
+      - neutron-l3-agent.service

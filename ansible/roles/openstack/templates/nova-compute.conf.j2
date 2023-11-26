@@ -1,0 +1,80 @@
+[DEFAULT]
+log_dir = /var/log/nova
+lock_path = /var/lock/nova
+state_path = /var/lib/nova
+enabled_apis = osapi_compute,metadata
+transport_url = rabbit://openstack:{{ PW_RABBITMQ }}@{{ controller }}.{{ domain }}
+my_ip = {{ ansible_host }}
+
+[api]
+auth_strategy = keystone
+
+[cinder]
+os_region_name = {{ region }}
+
+[keystone_authtoken]
+www_authenticate_uri = http://{{ controller }}.{{ domain }}:5000/
+auth_uri = http://{{ controller }}.{{ domain }}:5000/
+memcached_servers = {{ controller }}.{{ domain }}:11211
+auth_type = password
+project_domain_name = Default
+user_domain_name = Default
+project_name = service
+username = nova
+password = {{ PW_OS_NOVA }}
+
+[vnc]
+enabled = True
+keymap = ja
+server_listen = 0.0.0.0
+server_proxyclient_address = $my_ip
+novncproxy_base_url = http://{{ controller }}.{{ domain }}:6080/vnc_auto.html
+
+[glance]
+api_servers = http://{{ controller }}.{{ domain }}:9292
+
+[oslo_concurrency]
+lock_path = /var/lib/nova/tmp
+
+[placement]
+region_name = {{ region }}
+project_domain_name = Default
+project_name = service
+auth_type = password
+user_domain_name = Default
+auth_url = http://{{ controller }}.{{ domain }}:5000/v3
+username = placement
+password = {{ PW_OS_PLACEMENT }}
+
+[neutron]
+auth_url = http://{{ controller }}.{{ domain }}:5000
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+region_name = {{ region }}
+project_name = service
+username = neutron
+password = {{ PW_OS_NEUTRON }}
+
+# https://docs.openstack.org/nova/2023.1/install/compute-install-ubuntu.html
+[service_user]
+send_service_user_token = true
+auth_url = http://{{ controller }}.{{ domain }}:5000/
+auth_strategy = keystone
+auth_type = password
+project_domain_name = Default
+project_name = service
+user_domain_name = Default
+username = nova
+password = {{ PW_OS_NOVA }}
+region_name = {{ region }}
+valid_interfaces = internal
+
+[wsgi]
+api_paste_config=/etc/nova/api-paste.ini
+
+[scheduler]
+image_metadata_prefilter = True
+
+[filter_scheduler]
+image_properties_default_architecture = {{ arch_result.stdout }}

@@ -1,0 +1,39 @@
+
+# cf. Install and configure compute node
+# https://docs.openstack.org/neutron/latest/install/compute-install-ubuntu.html
+
+- name: task内の変数を定義します。
+  set_fact:
+    service_name: neutron
+
+- name: "{{ service_name }} 各種パッケージを追加します。"
+  apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: false
+  with_items:
+    - neutron-linuxbridge-agent
+
+- name: "{{ service_name }} 各種設定ファイルを用意します。"
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: 0644
+    force: yes
+  loop:
+    - src: neutron-compute.conf.j2
+      dest: /etc/neutron/neutron.conf
+    - src: linuxbridge_agent.ini.j2
+      dest: /etc/neutron/plugins/ml2/linuxbridge_agent.ini
+
+- name: "{{ service_name }} 再起動と有効化をさせます。"
+  systemd:
+    name: "{{ item }}"
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+  loop:
+    - nova-compute.service
+    - neutron-linuxbridge-agent.service
+  when:
+    - not ansible_check_mode

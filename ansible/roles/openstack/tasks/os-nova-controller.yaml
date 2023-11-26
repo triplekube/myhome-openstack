@@ -1,0 +1,233 @@
+
+# cf. Install and configure controller node for Ubuntu
+# https://docs.openstack.org/nova/latest/install/controller-install-ubuntu.html
+
+- name: task内の変数を定義します。
+  set_fact:
+    task_file: os-nova-controller.yaml
+    service_name: nova
+    check_table: services
+    #Ansible変数を環境変数にまとめて変換します。
+    env_vars:
+      OS_USERNAME: "{{ OS_USERNAME }}"
+      OS_PASSWORD: "{{ OS_PASSWORD }}"
+      OS_PROJECT_NAME: "{{ OS_PROJECT_NAME }}"
+      OS_USER_DOMAIN_NAME: "{{ OS_USER_DOMAIN_NAME }}"
+      OS_PROJECT_DOMAIN_NAME: "{{ OS_PROJECT_DOMAIN_NAME }}"
+      OS_AUTH_URL: "{{ OS_AUTH_URL }}"
+      OS_IDENTITY_API_VERSION: "{{ OS_IDENTITY_API_VERSION }}"
+      OS_IMAGE_API_VERSION: "{{ OS_IMAGE_API_VERSION }}"
+
+- name: "{{ task_file }} {{ check_table }} テーブルがあるか確認します。"
+# マイグレーションまで１度回っていればservicesが出来るため、これをファクトとして利用します。
+  shell: |
+    mysql -u root -p'{{ PW_MARIADB }}' -e "USE {{ service_name }}; SHOW TABLES LIKE '{{ check_table }}';"
+  register: db_check_result
+  ignore_errors: true
+  changed_when: false
+
+- name: "{{ task_file }} テーブルの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ db_check_result.rc }}"
+      - "stdout_lines: {{ db_check_result.stdout_lines }}"
+
+## databaseでnovaユーザーの作成等をします。
+
+- name: "{{ task_file }} DBを作成します。"
+  mysql_db:
+    login_user: root
+    login_password: "{{ PW_MARIADB }}"
+    login_unix_socket: /run/mysqld/mysqld.sock
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - nova_api
+    - nova
+    - nova_cell0
+  when:
+    - "'services' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+
+- name: "{{ task_file }} localhost用のユーザーのみ追加します。"
+  mysql_user:
+    login_user: root
+    login_password: "{{ PW_MARIADB }}"
+    login_unix_socket: /run/mysqld/mysqld.sock
+    name: nova
+    password: "{{ PW_OS_NOVA }}"
+    host: "{{ item }}"
+    state: present
+  with_items:
+    - "localhost"
+    - "%"
+  when:
+    - not ansible_check_mode
+
+## ユーザー権限を追加しますが、他と同じようにmysql_userを使いwith_itemsでまとめると、
+## 最後のユーザーのみが反映されて前の２つは消されてしまいました。
+## そのため、commandで直接実行するようにしました。
+
+- name: "{{ task_file }} localhost用のユーザー権限を付与します。"
+## 確認は  SHOW GRANTS FOR 'nova'@'localhost';
+  command: >
+    mysql -u root -p{{ PW_MARIADB }} -S /run/mysqld/mysqld.sock -e
+    "GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'localhost';
+     GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'localhost';
+     GRANT ALL PRIVILEGES ON nova_cell0.* TO 'nova'@'localhost';"
+  when: "'users' not in db_check_result.stdout"
+
+- name: "{{ task_file }} 全ホスト用のユーザー権限を付与します。"
+## 確認は SHOW GRANTS FOR 'nova'@'%';
+  command: >
+    mysql -u root -p{{ PW_MARIADB }} -S /run/mysqld/mysqld.sock -e
+    "GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'%';
+     GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'%';
+     GRANT ALL PRIVILEGES ON nova_cell0.* TO 'nova'@'%';"
+  when: "'users' not in db_check_result.stdout"
+
+## novaユーザーの作成等をします。
+
+- name: "{{ task_file }}ユーザーが既にあるか確認します。"
+  shell: "openstack user show {{ service_name }}"
+  environment: "{{ env_vars }}"
+  register: openstack_user
+  ignore_errors: true
+
+- name: "{{ task_file }} ユーザーの確認結果を表示"
+  debug:
+    var: openstack_user.stdout_lines
+
+- name: "{{ task_file }}ユーザーを作成します。"
+  shell: openstack user create --domain default --password {{ PW_OS_NOVA }} {{ service_name }}
+  environment: "{{ env_vars }}"
+  # Return codeが0以外（異常）かつ、結果に何も含まれていないときに実行します。
+  when: openstack_user.rc != 0 and not openstack_user.stdout_lines
+
+- name: "{{ task_file }} adminロールに紐づいた{{ service_name }}ロールが既にあるか確認します。"
+  shell: openstack role assignment list --project service --user {{ service_name }} --role admin
+  environment: "{{ env_vars }}"
+  register: openstack_role
+  ignore_errors: true
+
+- name: "{{ task_file }} ロールの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ openstack_role.rc }}"
+      - "stdout_lines: {{ openstack_role.stdout_lines }}"
+
+- name: "{{ task_file }} adminロールに紐づいた{{ service_name }}ロールを作成します。"
+  shell: openstack role add --project service --user {{ service_name }} admin
+  environment: "{{ env_vars }}"
+  # Return codeが0（正常終了）かつ、結果に何も含まれていないときに実行します。
+  when: openstack_role.rc == 0 and not openstack_role.stdout_lines
+
+- name: "{{ task_file }}サービスが既にあるか確認します。"
+  shell: "openstack service show {{ service_name }}"
+  environment: "{{ env_vars }}"
+  register: openstack_service
+  ignore_errors: true
+
+- name: "{{ task_file }} サービスの確認結果を表示"
+  # サービスの初回は rc != 0 で stdout_lines は空で、stderr_lines には "No service with a type, name or ID of 'nova' exists."が入ります。
+  debug:
+    msg:
+      - "RC: {{ openstack_service.rc }}"
+      - "stdout_lines: {{ openstack_service.stdout_lines }}"
+
+- name: "{{ task_file }}サービスを作成します。"
+  shell: openstack service create --name {{ service_name }} --description "OpenStack Compute" compute
+  environment: "{{ env_vars }}"
+  # Return codeが0以外（異常）かつ、結果に何も含まれていないときに実行します。
+  when: openstack_service.rc != 0 and not openstack_service.stdout_lines
+
+# https://docs.openstack.org/cinder/latest/configuration/block-storage/service-token.html
+- name: "{{ task_file }} service-token用のserviceロールに{{ service_name }}ユーザーが紐づいているか確認します。"
+  shell: openstack role assignment list --user {{ service_name }} --project service --role service
+  environment: "{{ env_vars }}"
+  register: openstack_role_service
+  ignore_errors: true
+
+- name: "{{ task_file }} serviceロールの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ openstack_role_service.rc }}"
+      - "stdout_lines: {{ openstack_role_service.stdout_lines }}"
+
+- name: "{{ task_file }} service-token用のserviceロールに{{ service_name }}ユーザーを紐づけます。"
+  shell: openstack role add --user {{ service_name }} --project service service
+  environment: "{{ env_vars }}"
+  # Return codeが0（正常終了）かつ、結果に何も含まれていないときに実行します。
+  when: openstack_role_service.rc == 0 and not openstack_role_service.stdout_lines
+
+- name: "{{ task_file }}エンドポイントが既にあるか確認します。"
+  shell: openstack endpoint list --service compute --interface internal
+  environment: "{{ env_vars }}"
+  register: openstack_endpoint
+  ignore_errors: true
+
+- name: "{{ task_file }} エンドポイントの確認結果を表示"
+  # エンドポイントの初回は rc == 0 で stdout_lines が空です。
+  debug:
+    msg:
+      - "RC: {{ openstack_endpoint.rc }}"
+      - "stdout_lines: {{ openstack_endpoint.stdout_lines }}"
+
+- name: "{{ task_file }}エンドポイントを作成します。"
+  shell: "openstack endpoint create --region {{ region }} compute {{ item }} http://{{ ansible_hostname }}.{{ domain }}:8774/v2.1"
+  environment: "{{ env_vars }}"
+  loop:
+    - public
+    - internal
+    - admin
+  # Return codeが0（正常終了）かつ、結果に何も含まれていないときに実行します。
+  when: openstack_endpoint.rc == 0 and not openstack_endpoint.stdout_lines
+
+- name: "{{ task_file }} 各種パッケージを追加します。"
+  apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: no
+  with_items:
+    - nova-api
+    - nova-conductor
+    - nova-novncproxy
+    - nova-scheduler
+
+- name: "{{ task_file }} nova.conf を用意します。"
+  template:
+    src: nova-controller.conf.j2
+    dest: /etc/nova/nova.conf
+    mode: 0644
+    force: yes
+  register: config_result
+
+- name: "{{ task_file }} DBのマイグレーションを行います。"
+  command: "{{ item }}"
+  become_method: sudo
+  become_user: nova
+  with_items:
+    - "/usr/bin/nova-manage api_db sync"
+    - "/usr/bin/nova-manage cell_v2 map_cell0"
+    - "/usr/bin/nova-manage cell_v2 create_cell --name=cell1 --verbose"
+    - "/usr/bin/nova-manage db sync"
+    - "/usr/bin/nova-manage cell_v2 list_cells"
+  register: migration_result
+  when:
+    - "'services' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+- name: "{{ task_file }} 各種サービスをRestartさせます。"
+  systemd:
+    name: "{{ item }}"
+    state: restarted
+    enabled: yes
+  loop:
+    - nova-api
+    - nova-scheduler
+    - nova-conductor
+    - nova-novncproxy
+  when:
+    - config_result.changed or migration_result.changed
+    - not ansible_check_mode

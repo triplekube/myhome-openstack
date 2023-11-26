@@ -1,0 +1,14 @@
+[DEFAULT]
+
+[agent]
+prevent_arp_spoofing = false
+
+[linux_bridge]
+physical_interface_mappings = provider:eth1
+
+[securitygroup]
+enable_security_group = true
+firewall_driver = neutron.agent.linux.iptables_firewall.IptablesFirewallDriver
+
+[vxlan]
+enable_vxlan = false

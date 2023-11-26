@@ -1,0 +1,69 @@
+
+# cf. Install and configure a compute node for Ubuntu
+# https://docs.openstack.org/nova/latest/install/compute-install-ubuntu.html
+
+
+- name: task内の変数を定義します。
+  set_fact:
+    task_file: os-nova-compute.yaml
+    service_name: nova
+    check_table: services
+
+- name: "{{ task_file }} architectureを調べます"
+  command: uname -m
+  register: arch_result
+
+- name: "{{ task_file }} architectureが想定外の場合、arch変数にunknownを代入します。"
+  set_fact:
+    arch: "{{ 'aarch64' if 'aarch64' in arch_result.stdout else 'x86_64' if 'x86_64' in arch_result.stdout else 'unknown' }}"
+
+- name: "{{ task_file }} arch_result変数の確認結果を表示 aarch64 か x86_64 以外は止めていましたが、空チェックで落ちるので進めています。"
+  debug:
+    msg:
+      - "stdout_lines: {{ arch_result.stdout_lines }}"
+  # failed_when: "'unknown' in arch"
+
+- name: "{{ task_file }} 各種パッケージを追加します。"
+  apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: false
+  with_items:
+    - nova-compute
+    - seabios
+
+- name: "{{ task_file }} libvirtのdefaultネットワークが既にあるか確認します。"
+  shell: "virsh net-list --all"
+  register: libvirt_network
+  ignore_errors: true
+
+- name: "{{ task_file }} ネットワークの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ libvirt_network.rc }}"
+      - "stdout_lines: {{ libvirt_network.stdout_lines }}"
+
+- name: "{{ task_file }} libvirtのdefaultネットワークの非活性化をします。"
+  command: "{{ item }}"
+  with_items:
+    - virsh net-destroy default
+  when: "'default' in libvirt_network.stdout"
+  ignore_errors: true
+
+- name: "{{ task_file }} nova.conf を用意します。"
+  ## ファイル内のarch_result.stdoutはこのタスク上部で取得しています。
+  template:
+    src: nova-compute.conf.j2
+    dest: /etc/nova/nova.conf
+    mode: 0644
+    force: yes
+
+- name: "{{ task_file }} 各種サービスをRestartさせます。"
+  systemd:
+    name: "{{ item }}"
+    state: restarted
+    enabled: yes
+  loop:
+    - nova-compute
+  when:
+    - not ansible_check_mode

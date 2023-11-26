@@ -1,0 +1,54 @@
+- name: task内の変数を定義します。
+  set_fact:
+    task_file: os-amazonlinux2.yaml
+    service_name: amazonlinux2
+    #Ansible変数を環境変数にまとめて変換します。
+    env_vars:
+      OS_USERNAME: "{{ OS_USERNAME }}"
+      OS_PASSWORD: "{{ OS_PASSWORD }}"
+      OS_PROJECT_NAME: "{{ OS_PROJECT_NAME }}"
+      OS_USER_DOMAIN_NAME: "{{ OS_USER_DOMAIN_NAME }}"
+      OS_PROJECT_DOMAIN_NAME: "{{ OS_PROJECT_DOMAIN_NAME }}"
+      OS_AUTH_URL: "{{ OS_AUTH_URL }}"
+      OS_IDENTITY_API_VERSION: "{{ OS_IDENTITY_API_VERSION }}"
+      OS_IMAGE_API_VERSION: "{{ OS_IMAGE_API_VERSION }}"
+
+- name: "{{ task_file }} Amazon Linux 2 をダウンロードします。"
+  block:
+    - name: "{{ task_file }} amd64イメージが作成済みか確認します。"
+      command: openstack image show amzn2-{{ amazonlinux_version }}-amd64
+      environment: "{{ env_vars }}"
+      register: image_amd64
+      ignore_errors: True
+
+    - name: "{{ task_file }} amd64イメージをダウンロードします。"
+      get_url:
+        url: https://cdn.amazonlinux.com/os-images/{{ amazonlinux_version }}/kvm/amzn2-kvm-{{ amazonlinux_version }}-x86_64.xfs.gpt.qcow2
+        dest: /opt/amzn2-{{ amazonlinux_version }}-amd64.img
+      when: image_amd64.rc == 1
+
+    - name: "{{ task_file }} 続いてarm64イメージが作成済みか確認します。"
+      command: openstack image show amzn2-{{ amazonlinux_version }}-arm64
+      environment: "{{ env_vars }}"
+      register: image_arm64
+      ignore_errors: True
+
+    - name: "{{ task_file }} arm64イメージをダウンロードします。"
+      get_url:
+        url: https://cdn.amazonlinux.com/os-images/{{ amazonlinux_version }}/kvm-arm64/amzn2-kvm-{{ amazonlinux_version }}-arm64.xfs.gpt.qcow2
+        dest: /opt/amzn2-{{ amazonlinux_version }}-arm64.img
+      when: image_arm64.rc == 1
+
+- name: "{{ task_file }} イメージを作成します。"
+  block:
+    - name: "{{ task_file }} amzn2-{{ amazonlinux_version }}-amd64 を作成します。"
+      environment: "{{ env_vars }}"
+      command: >
+        openstack image create "amzn2-{{ amazonlinux_version }}-amd64" --file /opt/amzn2-{{ amazonlinux_version }}-amd64.img --disk-format qcow2 --container-format bare --public --property shared=true --property hw_architecture="x86_64"
+      when: image_amd64.rc == 1
+
+    - name: "{{ task_file }} amzn2-{{ amazonlinux_version }}-arm64 を作成します。"
+      environment: "{{ env_vars }}"
+      command: >
+        openstack image create "amzn2-{{ amazonlinux_version }}-arm64" --file /opt/amzn2-{{ amazonlinux_version }}-arm64.img --disk-format qcow2 --container-format bare --public --property shared=true --property hw_architecture="aarch64"
+      when: image_arm64.rc == 1
