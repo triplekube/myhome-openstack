@@ -1,0 +1,89 @@
+name: deploy
+
+on: push
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: current directory を確認します。
+      run: ls -la
+
+    - name: Dry Run for DEV (PR)
+      if: github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/main'
+      run: |
+        export DEV_PW_OS_ADMIN=${{ secrets.DEV_PW_OS_ADMIN }}
+        export DEV_PW_MARIADB=${{ secrets.DEV_PW_MARIADB }}
+        export DEV_PW_RABBITMQ=${{ secrets.DEV_PW_RABBITMQ }}
+        export DEV_PW_OS_KEYSTONE=${{ secrets.DEV_PW_OS_KEYSTONE }}
+        export DEV_PW_OS_GLANCE=${{ secrets.DEV_PW_OS_GLANCE }}
+        export DEV_PW_OS_PLACEMENT=${{ secrets.DEV_PW_OS_PLACEMENT }}
+        export DEV_PW_OS_CINDER=${{ secrets.DEV_PW_OS_CINDER }}
+        export DEV_PW_OS_NOVA=${{ secrets.DEV_PW_OS_NOVA }}
+        export DEV_PW_OS_NEUTRON=${{ secrets.DEV_PW_OS_NEUTRON }}
+        export DEV_PW_OS_METADATA=${{ secrets.DEV_PW_OS_METADATA }}
+        export DEV_PW_OS_ADD_NAME=${{ secrets.DEV_PW_OS_ADD_NAME }}
+        export DEV_SSH_PRIVATE_KEY=${{ secrets.DEV_SSH_PRIVATE_KEY }}
+        ansible-playbook ansible/site.yml -i ansible/inventories/dev/hosts.yml --check
+      env:
+        env: dev
+
+    - name: Dry Run for PRD (PR)
+      if: github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/main'
+      run: |
+        export PRD_PW_OS_ADMIN=${{ secrets.PRD_PW_OS_ADMIN }}
+        export PRD_PW_MARIADB=${{ secrets.PRD_PW_MARIADB }}
+        export PRD_PW_RABBITMQ=${{ secrets.PRD_PW_RABBITMQ }}
+        export PRD_PW_OS_KEYSTONE=${{ secrets.PRD_PW_OS_KEYSTONE }}
+        export PRD_PW_OS_GLANCE=${{ secrets.PRD_PW_OS_GLANCE }}
+        export PRD_PW_OS_PLACEMENT=${{ secrets.PRD_PW_OS_PLACEMENT }}
+        export PRD_PW_OS_CINDER=${{ secrets.PRD_PW_OS_CINDER }}
+        export PRD_PW_OS_NOVA=${{ secrets.PRD_PW_OS_NOVA }}
+        export PRD_PW_OS_NEUTRON=${{ secrets.PRD_PW_OS_NEUTRON }}
+        export PRD_PW_OS_METADATA=${{ secrets.PRD_PW_OS_METADATA }}
+        export PRD_PW_OS_ADD_NAME=${{ secrets.PRD_PW_OS_ADD_NAME }}
+        export PRD_SSH_PRIVATE_KEY=${{ secrets.PRD_SSH_PRIVATE_KEY }}
+        ansible-playbook ansible/site.yml -i ansible/inventories/prd/hosts.yml --check
+      env:
+        env: prd
+
+    - name: Deploy to DEV environment (For develop branch)
+      if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+      run: |
+        export DEV_PW_OS_ADMIN=${{ secrets.DEV_PW_OS_ADMIN }}
+        export DEV_PW_MARIADB=${{ secrets.DEV_PW_MARIADB }}
+        export DEV_PW_RABBITMQ=${{ secrets.DEV_PW_RABBITMQ }}
+        export DEV_PW_OS_KEYSTONE=${{ secrets.DEV_PW_OS_KEYSTONE }}
+        export DEV_PW_OS_GLANCE=${{ secrets.DEV_PW_OS_GLANCE }}
+        export DEV_PW_OS_PLACEMENT=${{ secrets.DEV_PW_OS_PLACEMENT }}
+        export DEV_PW_OS_CINDER=${{ secrets.DEV_PW_OS_CINDER }}
+        export DEV_PW_OS_NOVA=${{ secrets.DEV_PW_OS_NOVA }}
+        export DEV_PW_OS_NEUTRON=${{ secrets.DEV_PW_OS_NEUTRON }}
+        export DEV_PW_OS_METADATA=${{ secrets.DEV_PW_OS_METADATA }}
+        export DEV_PW_OS_ADD_NAME=${{ secrets.DEV_PW_OS_ADD_NAME }}
+        export DEV_SSH_PRIVATE_KEY=${{ secrets.DEV_SSH_PRIVATE_KEY }}
+        ansible-playbook ansible/site.yml -i ansible/inventories/dev/hosts.yml
+      env:
+        env: dev
+
+    - name: Deploy to PRD environment (For main branch)
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        export PRD_PW_OS_ADMIN=${{ secrets.PRD_PW_OS_ADMIN }}
+        export PRD_PW_MARIADB=${{ secrets.PRD_PW_MARIADB }}
+        export PRD_PW_RABBITMQ=${{ secrets.PRD_PW_RABBITMQ }}
+        export PRD_PW_OS_KEYSTONE=${{ secrets.PRD_PW_OS_KEYSTONE }}
+        export PRD_PW_OS_GLANCE=${{ secrets.PRD_PW_OS_GLANCE }}
+        export PRD_PW_OS_PLACEMENT=${{ secrets.PRD_PW_OS_PLACEMENT }}
+        export PRD_PW_OS_CINDER=${{ secrets.PRD_PW_OS_CINDER }}
+        export PRD_PW_OS_NOVA=${{ secrets.PRD_PW_OS_NOVA }}
+        export PRD_PW_OS_NEUTRON=${{ secrets.PRD_PW_OS_NEUTRON }}
+        export PRD_PW_OS_METADATA=${{ secrets.PRD_PW_OS_METADATA }}
+        export PRD_PW_OS_ADD_NAME=${{ secrets.PRD_PW_OS_ADD_NAME }}
+        export PRD_SSH_PRIVATE_KEY=${{ secrets.PRD_SSH_PRIVATE_KEY }}
+        ansible-playbook ansible/site.yml -i ansible/inventories/prd/hosts.yml
+      env:
+        env: prd

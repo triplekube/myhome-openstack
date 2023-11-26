@@ -1,0 +1,137 @@
+- name: task内の変数を定義します。
+  set_fact:
+    service_name: os-user-project.yaml
+    env_vars:
+      OS_USERNAME: "{{ OS_USERNAME }}"
+      OS_PASSWORD: "{{ OS_PASSWORD }}"
+      OS_PROJECT_NAME: "{{ OS_PROJECT_NAME }}"
+      OS_USER_DOMAIN_NAME: "{{ OS_USER_DOMAIN_NAME }}"
+      OS_PROJECT_DOMAIN_NAME: "{{ OS_PROJECT_DOMAIN_NAME }}"
+      OS_AUTH_URL: "{{ OS_AUTH_URL }}"
+      OS_IDENTITY_API_VERSION: "{{ OS_IDENTITY_API_VERSION }}"
+      OS_IMAGE_API_VERSION: "{{ OS_IMAGE_API_VERSION }}"
+
+- name: "{{ service_name }} memberに{{ add_name }}がいるか確認します。"
+  shell: openstack role assignment list --user {{ add_name }} --project {{ add_name }}-project --names
+  environment: "{{ env_vars }}"
+  register: result
+  ignore_errors: true
+  changed_when: false
+
+- name: "{{ service_name }} プロジェクトやユーザーの作成、memberへの追加など行います。"
+  shell: "{{ item }}"
+  environment: "{{ env_vars }}"
+  loop:
+    - "openstack project create --domain default --description 'private' {{ add_name }}-project"
+    - "openstack user create --domain default --password {{ PW_OS_ADD_NAME }} {{ add_name }}"
+    - "openstack role add --project {{ add_name }}-project --user {{ add_name }} member"
+  when: "'member' not in result.stdout"
+
+
+### ユーザー用（テナント）ネットワークを作成します。
+
+- name: "{{ service_name }} networkが作成済みか確認します。"
+  shell: >
+    openstack network list --project {{ add_name }}-project --format value -c Name
+  environment: "{{ env_vars }}"
+  register: existing_networks
+
+- name: "{{ service_name }} {{ add_name }}-projectのprojectIDを抜き出します。"
+  shell: >
+    openstack project show {{ add_name }}-project -f value -c id
+  environment: "{{ env_vars }}"
+  register: project_id_result
+
+- name: "{{ service_name }} 抜いたIDを代入します。"
+  set_fact:
+    project_id: "{{ project_id_result.stdout }}"
+
+- name: "{{ service_name }} networkを作成します。"
+  ## ユーザー用VLANネットワークを作成するので権限的にはadmin権限が必要です。
+  ## ただadminで別テナントのネットワークを作成する場合、ネットワーク名ではだめでID必須となります。
+  shell: >
+    openstack network create --project {{ project_id }} --provider-network-type vlan
+    --provider-physical-network provider --provider-segment {{ user_vlan }}
+    --mtu 1500 --no-share {{ add_name }}-network
+  environment: "{{ env_vars }}"
+  when: add_name ~ "-network" not in existing_networks.stdout
+
+- name: "{{ service_name }} subnetが作成済みか確認します。"
+  shell: >
+    openstack subnet list --network {{ add_name }}-network --format value -c Name
+  environment: "{{ env_vars }}"
+  register: existing_subnets
+
+- name: "{{ service_name }} subnetを作成します。"
+  shell: >
+    openstack subnet create --project {{ project_id }} --network {{ add_name }}-network
+    --subnet-range {{ user_range }} --dns-nameserver {{ user_dns1 }} --dns-nameserver {{ user_dns2 }}
+    --ip-version 4 --gateway {{ user_gateway }}
+    --allocation-pool start={{ user_dhcp_start }},end={{ user_dhcp_end }}
+    --dhcp {{ add_name }}-subnet
+  environment: "{{ env_vars }}"
+  when: add_name ~ "-subnet" not in existing_subnets.stdout
+
+### 外部ネットワークを作成します。
+
+- name: "{{ service_name }} external-networkが作成済みか確認します。"
+  shell: >
+    openstack network list --project admin --format value -c Name
+  environment: "{{ env_vars }}"
+  register: external_existing_networks
+
+- name: "{{ service_name }} adminのprojectIDを抜き出します。"
+  shell: >
+    openstack project show admin -f value -c id
+  environment: "{{ env_vars }}"
+  register: admin_project_id_result
+
+- name: "{{ service_name }} 抜いたIDを代入します。"
+  set_fact:
+    admin_project_id: "{{ admin_project_id_result.stdout }}"
+
+- name: "{{ service_name }} external-networkを作成します。"
+  ## 外部ネットワークを作成するので権限的にはadmin権限が必要です。
+  shell: >
+    openstack network create --project {{ admin_project_id }} --provider-network-type vlan
+    --provider-physical-network provider --provider-segment {{ external_vlan }}
+    --mtu 1500 --external --share external-network
+  environment: "{{ env_vars }}"
+  when: "'external-network' not in external_existing_networks.stdout"
+
+- name: "{{ service_name }} subnetが作成済みか確認します。"
+  shell: >
+    openstack subnet list --network external-network --format value -c Name
+  environment: "{{ env_vars }}"
+  register: external_existing_subnets
+
+- name: "{{ service_name }} subnetを作成します。"
+  shell: >
+    openstack subnet create --project {{ admin_project_id }} --network external-network
+    --subnet-range {{ external_range }} --dns-nameserver {{ external_dns1 }} --dns-nameserver {{ external_dns2 }}
+    --ip-version 4 --gateway {{ external_gateway }}
+    --allocation-pool start={{ external_dhcp_start }},end={{ external_dhcp_end }}
+    --dhcp external-subnet
+  environment: "{{ env_vars }}"
+  when: "'external-subnet' not in external_existing_subnets.stdout"
+
+- name: "{{ service_name }} 既存のキーペアを取得します"
+  shell: >
+    openstack keypair list --user {{ add_name }}
+  environment: "{{ env_vars }}"
+  register: existing_keypairs
+
+- name: "{{ service_name }} 公開鍵を取得します"
+  uri:
+    url: "https://github.com/{{ add_key_gh_user }}.keys"
+    return_content: yes
+  register: user_keys
+
+- name: "{{ service_name }} キーペアを登録します"
+  shell: >
+    echo "{{ user_keys.content }}" | openstack keypair create --user {{ add_name }} --user-domain default --public-key /dev/stdin {{ add_name }}-pub
+  environment: "{{ env_vars }}"
+  register: result
+  when:
+    - existing_keypairs.stdout == ""
+    - not ansible_check_mode

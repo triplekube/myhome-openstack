@@ -1,0 +1,31 @@
+- name: task内の変数を定義します。
+  set_fact:
+    task_file: etcd.yaml
+    service_name: etcd
+
+- name: "{{ task_file }} 各種パッケージを追加します。"
+  apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: yes
+  with_items:
+    - etcd
+
+- name: "{{ task_file }} 設定ファイルを用意します。"
+  template:
+    src: etcd.j2
+    dest: /etc/default/etcd
+    mode: 0644
+    force: yes
+  register: etcd_config
+  when: not ansible_check_mode
+
+- name: "{{ task_file }} Restartさせます。"
+  systemd:
+    name: etcd
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+  when:
+    - etcd_config.changed
+    - not ansible_check_mode

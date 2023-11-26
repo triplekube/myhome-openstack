@@ -1,0 +1,74 @@
+
+## 実行前にデフォルトゲートウェイとDNSサーバーの設定をset_fact内で各環境に合わせて書き換えてください。
+
+- name: nic0のインターフェイス名やデフォゲを設定します。
+  set_fact:
+    nic0: "{{ nic0 | default('eth0') }}"
+    nic1: "{{ nic1 | default('enx') }}"
+    dgw: "{{ dgw | default('10.234.12.2') }}"
+    dns: "{{ dns | default('8.8.8.8, 8.8.4.4') }}"
+
+- name: Interface0となるIPアドレスが指定されているか確認します。
+  assert:
+    that:
+      - ip0 is defined
+    fail_msg: "The variable 'ip0' is not defined. Please provide it using '-e ip0=xxx.xxx.xxx.xxx/xx nic0=ens3 nic1=fuga}'."
+
+# DGWも毎回指定したい場合は以下を使ってください。
+# - name: Interface0となるDGWアドレスが指定されているか確認します。
+#   assert:
+#     that:
+#       - dgw (Default Gateway) is defined
+#     fail_msg: "The variable 'dgw' is not defined. Please provide it using '-e dgw=zzz.zzz.zzz.zzz ip0=xxx.xxx.xxx.xxx/xx nic0=ens3 nic1=fuga}'."
+
+- name: Interface0となるMACアドレスを取得します。
+  command: cat /sys/class/net/{{ nic0 }}/address
+  register: mac0_result
+  changed_when: false  # 変更がない場合はスキップ
+
+- name: Interface1となるMACアドレスを取得します。
+  command: cat /sys/class/net/{{ nic1 }}/address
+  register: mac1_result
+  changed_when: false
+
+- name: MACアドレスを変数に格納します。
+  set_fact:
+    mac0: "{{ mac0_result.stdout }}"
+    mac1: "{{ mac1_result.stdout }}"
+
+- name:  新しいconfigを設置する前に、既存の /etc/netplan/*.{yaml,yml} を全て.bak付きにrenameします。
+  ansible.builtin.shell:
+    cmd: |
+      for ext in yaml yml; do
+        for file in /etc/netplan/*.$ext; do
+          [ -e "$file" ] || continue
+          echo "Processing $file"
+          mv "$file" "$file.bak"
+        done
+      done
+  register: shell_output
+
+- name: ファイル名を変更したファイルを表示します。
+  ansible.builtin.debug:
+    var: shell_output.stdout_lines
+
+- name: /etc/netplan/config.yaml を作成します。
+  template:
+    src: netplan_config.yaml.j2
+    dest: /etc/netplan/config.yaml
+    mode: 0644
+    force: yes
+  ignore_errors: true
+
+- name: /etc/netplan/config.yaml を適用します。
+  shell:
+    cmd: netplan apply
+  async: 20
+  poll: 0
+  ignore_errors: true
+  register: result
+
+- name: 適用結果を確認します。エラーの場合は止めます。
+  fail:
+    msg: "netplan apply failed"
+  when: result is failed

@@ -1,0 +1,59 @@
+[DEFAULT]
+rootwrap_config = /etc/cinder/rootwrap.conf
+api_paste_confg = /etc/cinder/api-paste.ini
+iscsi_helper = lioadm
+volume_name_template = volume-%s
+volume_group = cinder-volumes
+verbose = True
+state_path = /var/lib/cinder
+lock_path = /var/lock/cinder
+volumes_dir = /var/lib/cinder/volumes
+enabled_backends = nfs
+# for glance
+glance_api_servers = http://{{ ansible_hostname }}.{{ domain }}:9292
+# for cinder-scheduler
+transport_url = rabbit://openstack:{{ PW_RABBITMQ }}@{{ ansible_hostname }}.{{ domain }}
+auth_strategy = keystone
+my_ip = {{ ansible_host }}
+# for cinder-volume
+enabled_backends = nfs
+#default_volume_type = nfs
+
+[database]
+connection = mysql+pymysql://cinder:{{ PW_OS_CINDER }}@{{ ansible_hostname }}.{{ domain }}/cinder
+
+[keystone_authtoken]
+www_authenticate_uri = http://{{ ansible_hostname }}.{{ domain }}:5000
+auth_url = http://{{ ansible_hostname }}.{{ domain }}:5000
+memcached_servers = {{ ansible_hostname }}.{{ domain }}:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = cinder
+password = {{ PW_OS_CINDER }}
+# https://docs.openstack.org/cinder/2023.1/configuration/block-storage/service-token.html
+service_token_roles_required = true
+service_token_roles = service
+service_type = volumev3
+
+[oslo_concurrency]
+lock_path = /var/lib/cinder/tmp
+
+[nfs]
+volume_driver = cinder.volume.drivers.nfs.NfsDriver
+nfs_shares_config = /etc/cinder/nfs_shares
+nfs_mount_point_base = $state_path/mnt
+
+[service_user]
+# https://docs.openstack.org/cinder/zed/configuration/block-storage/service-token.html#troubleshooting
+# https://opendev.org/openstack/openstack-ansible-os_cinder/src/branch/master/templates/cinder.conf.j2
+send_service_user_token = true
+auth_type = password
+auth_url = http://{{ ansible_hostname }}.{{ domain }}:5000
+password = {{ PW_OS_CINDER }}
+project_domain_name = default
+project_name = service
+region_name = {{ region }}
+username = cinder
+user_domain_name = Default

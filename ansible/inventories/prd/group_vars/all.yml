@@ -1,0 +1,43 @@
+# admin-openrc に記述する内容です。
+OS_USERNAME: "admin"
+OS_PASSWORD: "{{ PW_OS_ADMIN }}"
+OS_PROJECT_NAME: "admin"
+OS_USER_DOMAIN_NAME: "Default"
+OS_PROJECT_DOMAIN_NAME: "Default"
+OS_AUTH_URL: "http://{{ controller }}.{{ domain }}:5000/v3/"
+OS_IDENTITY_API_VERSION: "3"
+OS_IMAGE_API_VERSION: "2"
+
+# それ以外の変数です。
+env: prd
+openstack_uca: "bobcat"
+domain: "example.com"
+region: "ap-northeast-1"
+controller: "nucos01"
+swap_size: "8"
+# ここから作成するユーザー用の各種設定を決めます。
+add_name: "taira"
+add_key_gh_user: "triplekube"
+user_vlan: "3"
+user_range: "192.168.0.0/22"
+user_gateway: "192.168.0.1"
+user_dhcp_start: "192.168.3.100"
+user_dhcp_end: "192.168.3.254"
+user_dns1: "8.8.8.8"
+user_dns2: "8.8.4.4"
+# ここから初期作成するエクスターナルネットワークの各種設定を決めます。
+external_vlan: "6"
+external_range: "192.168.12.0/22"
+external_gateway: "192.168.12.1"
+external_dhcp_start: "192.168.15.100"
+external_dhcp_end: "192.168.15.254"
+external_dns1: "8.8.8.8"
+external_dns2: "8.8.4.4"
+## cinder(NFSディスク共有)を使う場合は以下を実際の環境に合わせてください。
+nfs_shares: "10.234.15.250:/volume2/nfs-synas01-nucos"
+## amazon linux 2のバージョンを指定します。
+amazonlinux_version: "2.0.20231101.0"
+## grafana/promtailを使う場合は以下を実際の環境に合わせてください。
+url_grafana_agent: "http://pipi01.example.com:9090/api/v1/write"
+url_promtail: "http://pipi01.example.com:3100/loki/api/v1/push"
+promtail_version: "v2.8.3"

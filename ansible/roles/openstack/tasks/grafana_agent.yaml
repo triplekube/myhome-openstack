@@ -1,0 +1,54 @@
+- name: task内の変数を定義します。
+  set_fact:
+    task_file: grafana_agent.yaml
+    service_name: grafana_agent
+
+- name: "{{ task_file }} 既に起動中か確認します。"
+  ansible.builtin.command: systemctl is-active grafana-agent.service
+  register: service_status
+  changed_when: False
+  ignore_errors: true
+
+- block:
+    - name: "{{ task_file }} Grafana GPG keyを追加します。"
+      get_url:
+        url: https://apt.grafana.com/gpg.key
+        dest: /usr/share/keyrings/grafana.key
+        mode: '0644'
+
+    - name: "{{ task_file }} Grafana リポジトリを追加します。"
+      ansible.builtin.lineinfile:
+        path: /etc/apt/sources.list.d/grafana.list
+        line: 'deb [signed-by=/usr/share/keyrings/grafana.key] https://apt.grafana.com stable main'
+        create: yes
+
+    - name: "{{ task_file }} インストールします。"
+      ansible.builtin.apt:
+        update_cache: yes
+        name: grafana-agent
+        state: present
+      when: not ansible_check_mode
+
+    - name: "{{ task_file }} custom metrics用のフォルダを用意します。"
+      ansible.builtin.file:
+        path: /opt/text_collector
+        state: directory
+        owner: grafana-agent
+        group: grafana-agent
+        mode: '0755'
+  when: service_status.stdout != "active"
+
+- name: "{{ task_file }} grafana-agent.yaml を用意します。"
+  template:
+    src: grafana-agent.yaml.j2
+    dest: /etc/grafana-agent.yaml
+    mode: 0644
+    force: yes
+
+- name: "{{ task_file }} Restartさせます。"
+  systemd:
+    name: grafana-agent.service
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+  when: not ansible_check_mode

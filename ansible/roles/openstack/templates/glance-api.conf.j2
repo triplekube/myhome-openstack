@@ -1,0 +1,34 @@
+[DEFAULT]
+use_keystone_quotas = True
+
+[database]
+connection = mysql+pymysql://glance:{{ PW_OS_GLANCE }}@{{ ansible_hostname }}.{{ domain }}/glance
+
+[glance_store]
+stores = file,http
+default_store = file
+filesystem_store_datadir = /var/lib/glance/images/
+
+[image_format]
+disk_formats = ami,ari,aki,vhd,vhdx,vmdk,raw,qcow2,vdi,iso,ploop.root-tar
+
+[keystone_authtoken]
+www_authenticate_uri = http://{{ ansible_hostname }}.{{ domain }}:5000
+auth_url = http://{{ ansible_hostname }}.{{ domain }}:5000
+memcached_servers = {{ ansible_hostname }}.{{ domain }}:11211
+auth_type = password
+project_domain_name = Default
+user_domain_name = Default
+project_name = service
+username = glance
+password = {{ PW_OS_GLANCE }}
+# https://docs.openstack.org/cinder/zed/configuration/block-storage/service-token.html#troubleshooting
+# https://docs.openstack.org/cinder/2023.1/configuration/block-storage/service-token.html
+# https://opendev.org/openstack/openstack-ansible-os_glance/src/branch/master/templates/glance-api.conf.j2
+service_token_roles_required = true
+service_token_roles = service
+service_type = image
+token_cache_time = 300
+
+[paste_deploy]
+flavor = keystone

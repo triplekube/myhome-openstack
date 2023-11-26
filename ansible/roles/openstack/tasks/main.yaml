@@ -1,0 +1,39 @@
+# コントローラーとワーカーで実行するタスクはここで振り分けています。
+
+- name: role内の共通タスク
+  block:
+## both-password.yamlはパスワードを読み込んでいるので省略しないでください。
+  - include_tasks: both-password.yaml
+  - include_tasks: swap.yaml
+  - include_tasks: both.yaml
+## 以下２つは環境がなければ削除してください。
+  - include_tasks: grafana_agent.yaml
+  - include_tasks: promtail.yaml
+
+- name: コントローラータスク
+  block:
+  - include_tasks: controllers.yaml
+  - include_tasks: mariadb.yaml
+  - include_tasks: rabbitmq.yaml
+  - include_tasks: memcached.yaml
+  - include_tasks: etcd.yaml
+  - include_tasks: os-keystone.yaml
+  - include_tasks: os-glance.yaml
+  - include_tasks: os-placement.yaml
+  - include_tasks: os-nova-controller.yaml
+  - include_tasks: os-neutron-controller.yaml
+  - include_tasks: os-cinder-controller.yaml
+  - include_tasks: os-horizon.yaml
+  - include_tasks: os-final-check.yaml
+  - include_tasks: os-basic-setup.yaml
+  - include_tasks: os-amazonlinux2.yaml
+  - include_tasks: os-user-project.yaml
+  when: "'controllers' in group_names"
+
+- name: ワーカータスク
+  block:
+    - include_tasks: workers.yaml
+    - include_tasks: os-nova-compute.yaml
+    - include_tasks: os-neutron-compute.yaml
+    - include_tasks: os-cinder-compute.yaml
+  when: "'workers' in group_names"

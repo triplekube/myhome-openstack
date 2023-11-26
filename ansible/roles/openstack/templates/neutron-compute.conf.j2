@@ -1,0 +1,21 @@
+[DEFAULT]
+core_plugin = ml2
+transport_url = rabbit://openstack:{{ PW_RABBITMQ }}@{{ controller }}.{{ domain }}
+auth_strategy = keystone
+
+[agent]
+root_helper = "sudo /usr/bin/neutron-rootwrap /etc/neutron/rootwrap.conf"
+
+[keystone_authtoken]
+www_authenticate_uri = http://{{ controller }}.{{ domain }}:5000
+auth_url = http://{{ controller }}.{{ domain }}:5000
+memcached_servers = {{ controller }}.{{ domain }}:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = neutron
+password = {{ PW_OS_NEUTRON }}
+
+[oslo_concurrency]
+lock_path = /var/lib/neutron/tmp

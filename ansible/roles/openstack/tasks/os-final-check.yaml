@@ -1,0 +1,61 @@
+- name: task内の変数を定義します。
+  set_fact:
+    task_file: os-final-check.yaml
+    service_name: final-check
+    env_vars:
+      OS_USERNAME: "{{ OS_USERNAME }}"
+      OS_PASSWORD: "{{ OS_PASSWORD }}"
+      OS_PROJECT_NAME: "{{ OS_PROJECT_NAME }}"
+      OS_USER_DOMAIN_NAME: "{{ OS_USER_DOMAIN_NAME }}"
+      OS_PROJECT_DOMAIN_NAME: "{{ OS_PROJECT_DOMAIN_NAME }}"
+      OS_AUTH_URL: "{{ OS_AUTH_URL }}"
+      OS_IDENTITY_API_VERSION: "{{ OS_IDENTITY_API_VERSION }}"
+      OS_IMAGE_API_VERSION: "{{ OS_IMAGE_API_VERSION }}"
+
+# ここで最終的な確認を行っていきます。全て正常終了するはずです。
+
+- name: "{{ task_file }} openstackのシステム系サービスがいるか確認します。"
+  shell: openstack service show {{ item }}
+  environment: "{{ env_vars }}"
+  with_items:
+    - glance
+    - placement
+    - nova
+    - neutron
+    - cinderv3
+
+- name: "{{ task_file }} openstackのシステム系ユーザーがいるか確認します"
+  shell: openstack user show {{ item }}
+  environment: "{{ env_vars }}"
+  with_items:
+    - admin
+    - glance
+    - placement
+    - nova
+    - neutron
+    - cinder
+
+- name: "{{ task_file }} openstackのシステム系ロールがいるか確認します。"
+  shell: openstack role show {{ item }}
+  environment: "{{ env_vars }}"
+  with_items:
+    - admin
+    - member
+    - service
+
+- name: "{{ task_file }} openstackのシステム系の一部ユーザーがserviceロールに紐づいているか確認します。"
+  shell: openstack role assignment list --user {{ item }} --project service --role service
+  environment: "{{ env_vars }}"
+  with_items:
+    - nova
+    - cinder
+
+- name: "{{ task_file }} openstackのシステム系ユーザーがadminロールに紐づいているか確認します。"
+  shell: openstack role assignment list --user {{ item }} --project service --role admin
+  environment: "{{ env_vars }}"
+  with_items:
+    - glance
+    - placement
+    - nova
+    - neutron
+    - cinder

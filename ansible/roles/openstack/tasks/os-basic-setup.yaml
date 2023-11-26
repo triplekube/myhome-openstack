@@ -1,0 +1,86 @@
+- name: task内の変数を定義します。
+  set_fact:
+    task_file: os-basic-setup.yaml
+    service_name: basic
+    #Ansible変数を環境変数にまとめて変換します。
+    env_vars:
+      OS_USERNAME: "{{ OS_USERNAME }}"
+      OS_PASSWORD: "{{ OS_PASSWORD }}"
+      OS_PROJECT_NAME: "{{ OS_PROJECT_NAME }}"
+      OS_USER_DOMAIN_NAME: "{{ OS_USER_DOMAIN_NAME }}"
+      OS_PROJECT_DOMAIN_NAME: "{{ OS_PROJECT_DOMAIN_NAME }}"
+      OS_AUTH_URL: "{{ OS_AUTH_URL }}"
+      OS_IDENTITY_API_VERSION: "{{ OS_IDENTITY_API_VERSION }}"
+      OS_IMAGE_API_VERSION: "{{ OS_IMAGE_API_VERSION }}"
+
+- name: "{{ task_file }} flavors が既にあるか確認します。"
+  command: openstack flavor show medium
+  environment: "{{ env_vars }}"
+  register: flavor_medium
+  ignore_errors: True
+
+- name: "{{ task_file }} flavors を作成します。"
+  command: "openstack flavor create --vcpus {{ item.vcpus }} --ram {{ item.ram }} --disk {{ item.disk }} {{ item.name }}"
+  environment: "{{ env_vars }}"
+  loop:
+    ## 基本セット
+    - { name: 'micro', vcpus: 1, ram: 1024, disk: 10 }
+    - { name: 'small', vcpus: 2, ram: 2048, disk: 10 }
+    - { name: 'medium', vcpus: 4, ram: 4096, disk: 10 }
+    - { name: 'large', vcpus: 8, ram: 8192, disk: 10 }
+    ## Disk拡張
+    - { name: 'micro-30', vcpus: 1, ram: 1024, disk: 30 }
+    - { name: 'small-30', vcpus: 2, ram: 2048, disk: 30 }
+    - { name: 'medium-30', vcpus: 4, ram: 4096, disk: 30 }
+    - { name: 'large-30', vcpus: 8, ram: 8192, disk: 30 }
+    ## medium拡張
+    - { name: 'xmedium-30', vcpus: 4, ram: 8192, disk: 30 }
+    - { name: '2xmedium-30', vcpus: 4, ram: 16384, disk: 30 }
+    - { name: '4xmedium-30', vcpus: 4, ram: 32768, disk: 30 }
+    - { name: '8xmedium-30', vcpus: 4, ram: 65536, disk: 30 }
+    ## large拡張
+    - { name: 'xlarge-30', vcpus: 8, ram: 16384, disk: 30 }
+    - { name: '2xlarge-30', vcpus: 8, ram: 32768, disk: 30 }
+    - { name: '4xlarge-30', vcpus: 8, ram: 65536, disk: 30 }
+  when: flavor_medium.rc == 1
+
+
+- name: "{{ task_file }} Ubuntu cloud images をダウンロードします。"
+  block:
+    - name: "{{ task_file }} amd64イメージが作成済みか確認します。"
+      command: openstack image show ubuntu-22.04-amd64
+      environment: "{{ env_vars }}"
+      register: image_amd64
+      ignore_errors: True
+
+    - name: "{{ task_file }} amd64イメージをダウンロードします。"
+      get_url:
+        url: https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img
+        dest: /opt/ubuntu-22.04-server-cloudimg-amd64.img
+      when: image_amd64.rc == 1
+
+    - name: "{{ task_file }} 続いてarm64イメージが作成済みか確認します。"
+      command: openstack image show ubuntu-22.04-arm64
+      environment: "{{ env_vars }}"
+      register: image_arm64
+      ignore_errors: True
+
+    - name: "{{ task_file }} arm64イメージをダウンロードします。"
+      get_url:
+        url: https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-arm64.img
+        dest: /opt/ubuntu-22.04-server-cloudimg-arm64.img
+      when: image_arm64.rc == 1
+
+- name: "{{ task_file }} イメージを作成します。"
+  block:
+    - name: "{{ task_file }} ubuntu-22.04-amd64 を作成します。"
+      environment: "{{ env_vars }}"
+      command: >
+        openstack image create "ubuntu-22.04-amd64" --file /opt/ubuntu-22.04-server-cloudimg-amd64.img --disk-format qcow2 --container-format bare --public --property shared=true --property hw_architecture="x86_64"
+      when: image_amd64.rc == 1
+
+    - name: "{{ task_file }} ubuntu-22.04-arm64 を作成します。"
+      environment: "{{ env_vars }}"
+      command: >
+        openstack image create "ubuntu-22.04-arm64" --file /opt/ubuntu-22.04-server-cloudimg-arm64.img --disk-format qcow2 --container-format bare --public --property shared=true --property hw_architecture="aarch64"
+      when: image_arm64.rc == 1

@@ -1,0 +1,63 @@
+server:
+  disable: true
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: {{ url_promtail }}
+
+scrape_configs:
+- job_name: system
+  static_configs:
+  - targets:
+      - localhost
+    labels:
+      host: {{ ansible_hostname }}
+      job: varlogs
+      __path__: /var/log/*log
+
+- job_name: nova
+  static_configs:
+  - targets:
+      - localhost
+    labels:
+      host: {{ ansible_hostname }}
+      job: nova_logs
+      __path__: /var/log/nova/*.log
+
+- job_name: neutron
+  static_configs:
+  - targets:
+      - localhost
+    labels:
+      host: {{ ansible_hostname }}
+      job: neutron_logs
+      __path__: /var/log/neutron/*.log
+
+- job_name: libvirt-qemu
+  static_configs:
+  - targets:
+      - localhost
+    labels:
+      host: {{ ansible_hostname }}
+      job: libvirt-qemu_logs
+      __path__: /var/log/libvirt/qemu/*.log
+
+- job_name: glance
+  static_configs:
+  - targets:
+      - localhost
+    labels:
+      host: {{ ansible_hostname }}
+      job: glance_logs
+      __path__: /var/log/glance/*.log
+
+- job_name: cinder
+  static_configs:
+  - targets:
+      - localhost
+    labels:
+      host: {{ ansible_hostname }}
+      job: cinder_logs
+      __path__: /var/log/cinder/*.log

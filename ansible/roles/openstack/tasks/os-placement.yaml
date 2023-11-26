@@ -1,0 +1,200 @@
+- name: task内の変数を定義します。
+  set_fact:
+    task_file: os-placement.yaml
+    service_name: placement
+    check_table: users
+    env_vars:
+      OS_USERNAME: "{{ OS_USERNAME }}"
+      OS_PASSWORD: "{{ OS_PASSWORD }}"
+      OS_PROJECT_NAME: "{{ OS_PROJECT_NAME }}"
+      OS_USER_DOMAIN_NAME: "{{ OS_USER_DOMAIN_NAME }}"
+      OS_PROJECT_DOMAIN_NAME: "{{ OS_PROJECT_DOMAIN_NAME }}"
+      OS_AUTH_URL: "{{ OS_AUTH_URL }}"
+      OS_IDENTITY_API_VERSION: "{{ OS_IDENTITY_API_VERSION }}"
+      OS_IMAGE_API_VERSION: "{{ OS_IMAGE_API_VERSION }}"
+
+- name: "{{ task_file }} {{ service_name }}:{{ check_table }} テーブルがあるか確認します。"
+  shell: |
+    mysql -u root -p'{{ PW_MARIADB }}' -e "USE {{ service_name }}; SHOW TABLES LIKE '{{ check_table }}';"
+  register: db_check_result
+  ignore_errors: true
+  changed_when: false
+
+- name: "{{ task_file }} debug テーブルの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ db_check_result.rc }}"
+      - "stdout_lines: {{ db_check_result.stdout_lines }}"
+
+- name: "{{ task_file }} DBを作成します。"
+  mysql_db:
+    login_user: root
+    login_password: "{{ PW_MARIADB }}"
+    login_unix_socket: /run/mysqld/mysqld.sock
+    name: "{{ service_name }}"
+    state: present
+  when:
+    - "'users' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+- name: "{{ task_file }} localhost用のユーザーを追加します。"
+  mysql_user:
+    login_user: root
+    login_password: "{{ PW_MARIADB }}"
+    login_unix_socket: /run/mysqld/mysqld.sock
+    name: "{{ service_name }}"
+    password: "{{ PW_OS_PLACEMENT }}"
+    priv: '{{ service_name }}.*:ALL'
+    host: localhost
+    state: present
+  when:
+    - "'users' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+- name: "{{ task_file }} 全ホスト用のユーザーを追加します。"
+  mysql_user:
+    login_user: root
+    login_password: "{{ PW_MARIADB }}"
+    login_unix_socket: /run/mysqld/mysqld.sock
+    name: "{{ service_name }}"
+    password: "{{ PW_OS_PLACEMENT }}"
+    priv: '{{ service_name }}.*:ALL'
+    host: "%"
+    state: present
+  when:
+    - "'users' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+- name: "{{ task_file }}ユーザーが既にあるか確認します。"
+  shell: "openstack user show {{ service_name }}"
+  environment: "{{ env_vars }}"
+  register: openstack_user
+  ignore_errors: true
+
+- name: "{{ task_file }} ユーザーの確認結果を表示"
+  debug:
+    var: openstack_user.stdout_lines
+
+- name: "{{ task_file }}ユーザーを作成します。"
+  shell: openstack user create --domain default --password {{ PW_OS_PLACEMENT }} {{ service_name }}
+  environment: "{{ env_vars }}"
+  when: openstack_user.rc != 0 and not openstack_user.stdout_lines
+
+- name: "{{ task_file }} adminロールに紐づいた{{ service_name }}ロールが既にあるか確認します。"
+  shell: openstack role assignment list --project service --user {{ service_name }} --role admin
+  environment: "{{ env_vars }}"
+  register: openstack_role
+  ignore_errors: true
+
+- name: "{{ task_file }} ロールの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ openstack_role.rc }}"
+      - "stdout_lines: {{ openstack_role.stdout_lines }}"
+
+- name: "{{ task_file }} adminロールに紐づいた{{ service_name }}ロールを作成します。"
+  shell: openstack role add --project service --user {{ service_name }} admin
+  environment: "{{ env_vars }}"
+  when: openstack_role.rc == 0 and not openstack_role.stdout_lines
+
+- name: "{{ task_file }} サービスが既にあるか確認します。"
+  shell: "openstack service show {{ service_name }}"
+  environment: "{{ env_vars }}"
+  register: openstack_service
+  ignore_errors: true
+
+- name: "{{ task_file }} サービスの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ openstack_service.rc }}"
+      - "stdout_lines: {{ openstack_service.stdout_lines }}"
+
+- name: "{{ task_file }} サービスを作成します。"
+  shell: openstack service create --name {{ service_name }} --description "Placement API" placement
+  environment: "{{ env_vars }}"
+  when: openstack_service.rc != 0 and not openstack_service.stdout_lines
+
+- name: "{{ task_file }} エンドポイントが既にあるか確認します。"
+  shell: openstack endpoint list --service {{ service_name }} --interface internal
+  environment: "{{ env_vars }}"
+  register: openstack_endpoint
+  ignore_errors: true
+
+- name: "{{ task_file }} debug endpointの確認結果を表示"
+  debug:
+    msg:
+      - "RC: {{ openstack_endpoint.rc }}"
+      - "stdout_lines: {{ openstack_endpoint.stdout_lines }}"
+
+- name: "{{ task_file }} エンドポイントを作成します。"
+  shell: "openstack endpoint create --region {{ region }} {{ service_name }} {{ item }} http://{{ ansible_hostname }}.{{ domain }}:8778"
+  environment: "{{ env_vars }}"
+  loop:
+    - public
+    - internal
+    - admin
+  when: openstack_endpoint.rc == 0 and not openstack_endpoint.stdout_lines
+
+- name: "{{ task_file }} 各種パッケージを追加します。"
+  apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: yes
+  with_items:
+    - placement-api
+
+- name: "{{ task_file }} placement.conf を用意します。"
+  template:
+    src: placement.conf.j2
+    dest: /etc/placement/placement.conf
+    mode: 0644
+    force: yes
+  register: config_result
+
+- name: "{{ task_file }} DBのマイグレーションを行います。"
+  command: "/usr/bin/placement-manage db sync"
+  become_method: sudo
+  become_user: placement
+  register: migration_result
+  when:
+    - "'users' not in db_check_result.stdout"
+    - not ansible_check_mode
+
+- name: "{{ task_file }} apacheをRestartさせます。"
+  systemd:
+    name: apache2
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+  when:
+    - config_result.changed or migration_result.changed
+    - not ansible_check_mode
+
+- name: "{{ task_file }} apacheが起動するのを待ちます。"
+  wait_for:
+    host: "localhost"
+    port: 8778
+    state: started
+    delay: 2  # ポートが開くのを待つ間隔（秒）
+    timeout: 300  # 最大待機時間（秒）
+
+- name: "{{ task_file }} upgrade statusを実行します。"
+  shell: sudo placement-status upgrade check
+  register: check_result
+
+- name: "{{ task_file }} upgrade statusの結果を表示します。"
+  debug:
+    var: check_result.stdout
+
+- name: "{{ task_file }} python3-pipをインストールします。"
+  apt:
+    name: python3-pip
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: "{{ task_file }} osc-placementプラグインをインストールします。"
+  pip:
+    name: osc-placement
+    executable: pip3
+  when: not ansible_check_mode

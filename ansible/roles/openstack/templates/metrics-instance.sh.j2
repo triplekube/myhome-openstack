@@ -1,0 +1,27 @@
+#!/bin/bash
+
+#権限
+export OS_PROJECT_DOMAIN_NAME=Default
+export OS_USER_DOMAIN_NAME=Default
+export OS_PROJECT_NAME=admin
+export OS_USERNAME=admin
+export OS_PASSWORD={{ PW_OS_ADMIN }}
+export OS_AUTH_URL=http://{{ ansible_hostname }}.{{ domain }}:5000/v3
+export OS_IDENTITY_API_VERSION=3
+export OS_IMAGE_API_VERSION=2
+
+#１行スクリプトで出力する
+export name="nuc"; openstack hypervisor list --long | grep $name |\
+awk '/^| / { print $4 }' |\
+while read HYPERVISOR;\
+  do echo -n "$HYPERVISOR ";\
+    openstack server list --all-projects --host "$HYPERVISOR" --long | grep nova|\
+    awk '/^| / { print $2 }' |\
+    wc -l;\
+done |\
+while read a b ;\
+  do echo openstack_hypervisor_vm_count{hypervisor=\"$a\"} $b;\
+done > /opt/text_collector/metrics-instance.prom.new
+
+#swapさせる
+mv /opt/text_collector/metrics-instance.prom.new /opt/text_collector/metrics-instance.prom

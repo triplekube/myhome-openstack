@@ -1,0 +1,98 @@
+- name: task内の変数を定義します。
+  set_fact:
+    task_file: promtail.yaml
+    service_name: promtail
+    # URLは書き換えることを想定していないのでinventoriesでなくここに記述しています。
+    promtail_url_x86: "https://github.com/grafana/loki/releases/download/{{ promtail_version }}/promtail-linux-amd64.zip"
+    promtail_url_arm: "https://github.com/grafana/loki/releases/download/{{ promtail_version }}/promtail-linux-arm64.zip"
+
+- name: "{{ task_file }} アーキテクチャ情報を収集します。"
+  ansible.builtin.setup:
+    filter: ansible_architecture
+  register: architecture
+
+- name: "{{ task_file }} /usr/local/bin/promtailが存在するか確認します"
+  stat:
+    path: "/usr/local/bin/promtail"
+  register: promtail_binary
+
+- block:
+    - name: "{{ task_file }} ダウンロードします(amd64)"
+      get_url:
+        url: "{{ promtail_url_x86 }}"
+        dest: "/tmp/promtail-linux-amd64.zip"
+        mode: '0755'
+
+    - name: "{{ task_file }} 解凍します(amd64)"
+      unarchive:
+        src: "/tmp/promtail-linux-amd64.zip"
+        dest: "/tmp"
+        remote_src: yes
+      when: not ansible_check_mode
+
+    - name: "{{ task_file }} インストールします(amd64)"
+      copy:
+        src: "/tmp/promtail-linux-amd64"
+        dest: "/usr/local/bin/promtail"
+        mode: '0755'
+        owner: 'root'
+        group: 'root'
+        remote_src: true
+  when:
+    - architecture.ansible_facts.ansible_architecture == "x86_64"
+    - not promtail_binary.stat.exists
+    - not ansible_check_mode
+
+- block:
+    - name: "{{ task_file }} ダウンロードします(arm64)"
+      get_url:
+        url: "{{ promtail_url_arm }}"
+        dest: "/tmp/promtail-linux-arm64.zip"
+        mode: '0755'
+
+    - name: "{{ task_file }} 解凍します(arm64)"
+      unarchive:
+        src: "/tmp/promtail-linux-arm64.zip"
+        dest: "/tmp"
+        remote_src: yes
+      when: not ansible_check_mode
+
+    - name: "{{ task_file }} インストールします(arm64)"
+      copy:
+        src: "/tmp/promtail-linux-arm64"
+        dest: "/usr/local/bin/promtail"
+        mode: '0755'
+        owner: 'root'
+        group: 'root'
+        remote_src: true
+  when:
+    - architecture.ansible_facts.ansible_architecture == "aarch64"
+    - not promtail_binary.stat.exists
+    - not ansible_check_mode
+
+- name: "{{ task_file }} の設定ディレクトリを作成します"
+  file:
+    path: "/etc/promtail"
+    state: directory
+
+- name: "{{ task_file }} promtail-local-config.yaml を用意します。"
+  template:
+    src: promtail-local-config.yaml.j2
+    dest: /etc/promtail/promtail-local-config.yaml
+    mode: 0644
+    force: yes
+
+- name: "{{ task_file }} promtail.service を用意します。"
+  template:
+    src: promtail.service.j2
+    dest: /etc/systemd/system/promtail.service
+    mode: 0644
+    force: yes
+
+- name: "{{ task_file }} Restartさせます。"
+  systemd:
+    name: promtail.service
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+  when: not ansible_check_mode

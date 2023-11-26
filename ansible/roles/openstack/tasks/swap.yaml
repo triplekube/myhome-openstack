@@ -1,0 +1,47 @@
+- name: task内の変数を定義します。
+  set_fact:
+    task_file: swap.yaml
+    service_name: swap
+
+- name: "{{ task_file }} /swap.imgの存在を確認します。"
+  stat:
+    path: /swap.img
+  register: swap_stat
+
+- name: "{{ task_file }} swapファイルのblockです。0ならskipします。"
+  block:
+    - name: "{{ task_file }} swap.imgのcount数を決定します。"
+      set_fact:
+        dd_count: "{{ ((swap_size|float * 1024 * 1024) / (128|float)) | round(0, 'floor') | int }}"
+
+    - name: "{{ task_file }} swap.imgを作成します。"
+      command:
+        cmd: "dd if=/dev/zero of=/swap.img bs=128K count={{ dd_count }} status=progress"
+
+    - name: "{{ task_file }} swap.imgを設定します。"
+      command:
+        cmd: "{{ item }}"
+      loop:
+        - "chmod 600 /swap.img"
+        - "mkswap /swap.img"
+        - "swapon /swap.img"
+        - "swapon --show"
+
+    - name: "{{ task_file }} fstabにswap.imgを追加します。"
+      lineinfile:
+        path: /etc/fstab
+        line: '/swap.img none swap sw 0 0'
+        state: present
+
+    - name: "{{ task_file }} swapの確認をします。"
+      command:
+        cmd: "swapon --show"
+      register: swap_status
+
+    - name: "{{ task_file }} swapのstatusを目視します。"
+      debug:
+        var: swap_status.stdout_lines
+      when: swap_size != "0"
+
+  when: swap_size != "0" and not swap_stat.stat.exists
+

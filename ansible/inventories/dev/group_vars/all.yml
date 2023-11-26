@@ -1,0 +1,43 @@
+# admin-openrc で利用・記述する内容です。
+OS_USERNAME: "admin"
+OS_PASSWORD: "{{ PW_OS_ADMIN }}"
+OS_PROJECT_NAME: "admin"
+OS_USER_DOMAIN_NAME: "Default"
+OS_PROJECT_DOMAIN_NAME: "Default"
+OS_AUTH_URL: "http://{{ controller }}.{{ domain }}:5000/v3/"
+OS_IDENTITY_API_VERSION: "3"
+OS_IMAGE_API_VERSION: "2"
+
+# それ以外の変数です。
+env: dev                   # both.yaml用。環境名を指定し、パスワードを切り替えます。
+openstack_uca: "bobcat"    # Ubuntu Cloud Archive (UCA) のリポジトリ名です。
+domain: "example.com"      # ドメイン名です。外部DNSを使わないときは"local"などとしておきます。
+region: "ap-northeast-1"   # glance等、endpointを作成するときに必要です。デフォルトは"RegionOne"です。
+controller: "pios01"       # コントローラーのFQDNではなくホスト名を指定します。
+swap_size: "4"             # (GBytes) スワップ領域のサイズを指定します。0にすると作成しません。
+# ここから作成するユーザー用の各種設定を決めます。
+add_name: "taira"                # os-user-project.yaml用 追加するユーザー名やプロジェクト名に使います。
+add_key_gh_user: "triplekube"    # os-user-project.yaml用 公開鍵をhttps://github.com/{{add_key_gh_user}}.keysで取得します。
+user_vlan: "4"                   # os-user-project.yaml用 追加するユーザー用のVLAN番号です。
+user_range: "192.168.4.0/22"     # os-user-project.yaml用 追加するサブネットのアドレスです。
+user_gateway: "192.168.4.1"      # os-user-project.yaml用 このサブネットのデフォゲです。
+user_dhcp_start: "192.168.7.100" # os-user-project.yaml用 DHCPの開始アドレスです。
+user_dhcp_end: "192.168.7.254"   # os-user-project.yaml用 DHCPの終了アドレスです。
+user_dns1: "8.8.8.8"             # os-user-project.yaml用 1つ目のDNSサーバーです。
+user_dns2: "8.8.4.4"             # os-user-project.yaml用 2つ目のDNSサーバーです。
+# ここから初期作成するエクスターナルネットワークの各種設定を決めます。
+external_vlan: "5"
+external_range: "192.168.8.0/22"
+external_gateway: "192.168.8.1"
+external_dhcp_start: "192.168.11.100"
+external_dhcp_end: "192.168.11.254"
+external_dns1: "8.8.8.8"
+external_dns2: "8.8.4.4"
+## cinder(NFSディスク共有)を使う場合は以下を実際の環境に合わせてください。
+nfs_shares: "10.234.15.250:/volume2/nfs-synas01-pios" # NFSの共有先を指定します。os-cinder-controller.yamlで使用中
+## amazon linux 2のバージョンを指定します。
+amazonlinux_version: "2.0.20231101.0"
+## grafana/promtailを使う場合は以下を実際の環境に合わせてください。
+url_grafana_agent: "http://pipi01.example.com:9090/api/v1/write"
+url_promtail: "http://pipi01.example.com:3100/loki/api/v1/push"
+promtail_version: "v2.8.3"

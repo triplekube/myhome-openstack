@@ -1,0 +1,32 @@
+- name: task内の変数を定義します。
+  set_fact:
+    service_name: controllers.yaml
+
+- name: "{{ service_name }} 各種パッケージを追加します。"
+  package:
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - python3-openstackclient
+
+- name: "{{ service_name }} metrics-instance.sh インスタンス数のメトリクスを出すshを設置します。"
+  template:
+    src: metrics-instance.sh.j2
+    dest: /usr/local/bin/metrics-instance.sh
+    mode: 0755
+    force: yes
+
+- name: "{{ service_name }} metrics-instance.sh cronに登録します。"
+  cron:
+    name: "Run metrics-instance.sh"
+    minute: "*"
+    hour: "*"
+    user: root
+    job: "/usr/local/bin/metrics-instance.sh"
+
+- name: "{{ service_name }} admin-openrcを保存します。"
+  template:
+    src: admin-openrc.j2
+    dest: /home/{{ ansible_user }}/admin-openrc
+    mode: 0644
+    force: yes
